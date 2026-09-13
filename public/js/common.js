@@ -16,20 +16,58 @@
   }
   function toast(message, type='ok') {
     let stack = document.querySelector('.toast-stack');
-    if (!stack) { stack = document.createElement('div'); stack.className = 'toast-stack'; document.body.appendChild(stack); }
-    const el = document.createElement('div'); el.className = `toast ${type==='error'?'toast-error':''}`; el.textContent = message; stack.appendChild(el);
-    setTimeout(() => el.remove(), 4200);
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.className = 'toast-stack';
+      stack.setAttribute('aria-live','polite');
+      document.body.appendChild(stack);
+    }
+    const kind = type === 'error' ? 'error' : type === 'warn' ? 'warn' : 'ok';
+    const title = kind === 'error' ? 'Une erreur est survenue' : kind === 'warn' ? 'Attention' : 'Information';
+    const icon = kind === 'error' ? '!' : kind === 'warn' ? '!' : '✓';
+    const el = document.createElement('div');
+    el.className = `toast toast-${kind}`;
+    el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+    el.innerHTML = `<div class="toast-icon" aria-hidden="true">${icon}</div><div class="toast-copy"><strong>${esc(title)}</strong><span>${esc(message)}</span></div><button type="button" class="toast-close" aria-label="Fermer">×</button><span class="toast-progress" aria-hidden="true"></span>`;
+    stack.appendChild(el);
+    const close = () => { el.classList.add('toast-out'); setTimeout(() => el.remove(), 180); };
+    el.querySelector('.toast-close')?.addEventListener('click', close);
+    const timer = setTimeout(close, kind === 'error' ? 6200 : 4600);
+    el.addEventListener('mouseenter', () => clearTimeout(timer), {once:true});
   }
-  function modal({title, html, large=false, onReady}={}) {
+  function modal({title, html, large=false, onReady, variant='default', icon=''}={}) {
     const wrap = document.createElement('div'); wrap.className='modal-backdrop open';
-    wrap.innerHTML = `<div class="modal ${large?'modal-lg':''}"><div class="modal-head"><h2>${esc(title||'')}</h2><button class="close-x" type="button" aria-label="Fermer">×</button></div><div class="modal-body">${html||''}</div></div>`;
+    const modalIcon = icon || (variant==='danger' ? '!' : variant==='success' ? '✓' : variant==='warning' ? '!' : 'i');
+    wrap.innerHTML = `<div class="modal ${large?'modal-lg':''} modal-${esc(variant)}" role="dialog" aria-modal="true"><div class="modal-head"><div class="modal-title-wrap"><span class="modal-title-icon" aria-hidden="true">${esc(modalIcon)}</span><h2>${esc(title||'')}</h2></div><button class="close-x" type="button" aria-label="Fermer">×</button></div><div class="modal-body">${html||''}</div></div>`;
     document.body.appendChild(wrap);
     enhancePasswordFields(wrap);
-    const close = () => wrap.remove();
+    const close = () => { wrap.classList.add('closing'); setTimeout(()=>wrap.remove(),140); };
     wrap.querySelector('.close-x').addEventListener('click', close);
     wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+    const escHandler=e=>{if(e.key==='Escape'){document.removeEventListener('keydown',escHandler);close();}};
+    document.addEventListener('keydown',escHandler);
     if (onReady) onReady(wrap, close);
     return {el:wrap, close};
+  }
+  function infoPopup(message, {title='Information', type='info', buttonText='Compris'}={}) {
+    return new Promise(resolve => {
+      const variant = type==='error'?'danger':type==='warn'?'warning':type==='success'?'success':'info';
+      modal({title,variant,html:`<div class="pro-message"><p>${esc(message)}</p></div><div class="modal-actions"><button type="button" class="btn btn-primary" data-ok>${esc(buttonText)}</button></div>`,onReady:(wrap,close)=>{
+        wrap.querySelector('[data-ok]').addEventListener('click',()=>{close();resolve(true)});
+      }});
+    });
+  }
+  function confirmPopup({title='Confirmer la suppression', message='Voulez-vous vraiment supprimer cet élément ?', detail='Cette action est définitive et ne peut pas être annulée.', confirmText='Supprimer', cancelText='Annuler'}={}) {
+    return new Promise(resolve => {
+      let settled=false;
+      const finish=(value,close)=>{if(settled)return;settled=true;close();resolve(value)};
+      modal({title,variant:'danger',icon:'!',html:`<div class="delete-confirm"><div class="delete-confirm-shield" aria-hidden="true">!</div><div><h3>Suppression définitive</h3><p>${esc(message)}</p>${detail?`<small>${esc(detail)}</small>`:''}</div></div><div class="modal-actions modal-actions-split"><button type="button" class="btn btn-ghost" data-cancel>${esc(cancelText)}</button><button type="button" class="btn btn-danger" data-confirm>${esc(confirmText)}</button></div>`,onReady:(wrap,close)=>{
+        wrap.querySelector('[data-cancel]').addEventListener('click',()=>finish(false,close));
+        wrap.querySelector('[data-confirm]').addEventListener('click',()=>finish(true,close));
+        wrap.querySelector('.close-x').addEventListener('click',()=>{if(!settled){settled=true;resolve(false)}});
+        wrap.addEventListener('click',e=>{if(e.target===wrap&&!settled){settled=true;resolve(false)}});
+      }});
+    });
   }
   async function api(url, options={}) {
     const headers = new Headers(options.headers || {});
@@ -288,7 +326,7 @@
     el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div><div class="footer-copyright">©2026 Méga Services SARL U - Tous droits réservés</div></div></div>`;
   }
 
-  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate, printProfessional };
+  window.FCK = { state, api, loadData, save, modal, toast, infoPopup, confirmPopup, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate, printProfessional };
   document.addEventListener('DOMContentLoaded', async () => {
     initBackgroundSlideshow();
     renderHeader(); footer();

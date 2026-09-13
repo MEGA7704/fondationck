@@ -256,7 +256,7 @@
   async function remove(id){
     const del=actionNames()[2];
     if(isAdmin()){
-      if(!confirm('Confirmer la suppression de cet élément ?'))return;
+      if(!await FCK.confirmPopup({title:'Confirmer la suppression',message:'Voulez-vous vraiment supprimer cet élément ?',detail:'Cette action est définitive et ne peut pas être annulée.'}))return;
       try{await FCK.save(del,{id});FCK.toast('Élément supprimé.');data=await FCK.loadData(true);render()}catch(err){FCK.toast(err.message,'error')}return;
     }
     FCK.modal({title:'Autorisation Administrateur requise',html:`<div class="alert alert-warn">La suppression par un Agent nécessite le mot de passe d’un Administrateur.</div><form id="deleteApproval" class="form-grid"><div class="field full"><label>Mot de passe Administrateur *</label><input class="input" type="password" name="admin_password" autocomplete="off" required></div><div class="field full"><div class="modal-actions"><button class="btn btn-danger" type="submit">Autoriser et supprimer</button></div></div></form>`,onReady:(wrap,close)=>wrap.querySelector('#deleteApproval').addEventListener('submit',async e=>{e.preventDefault();const admin_password=new FormData(e.currentTarget).get('admin_password');try{await FCK.save(del,{id,admin_password});FCK.toast('Élément supprimé.');close();data=await FCK.loadData(true);render()}catch(err){FCK.toast(err.message,'error')}})});

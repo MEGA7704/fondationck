@@ -171,7 +171,7 @@
 
   async function removeSector(id){
     if(isAdmin()){
-      if(!confirm('Supprimer ce secteur ? ATTENTION : cette action supprimera aussi toutes les lignes liées à ce secteur dans Responsables, Jeunes filles, Jeunes garçons, Associations et les membres des associations concernées. Cette suppression est définitive.'))return;
+      if(!await FCK.confirmPopup({title:'Supprimer le secteur',message:'Cette suppression effacera aussi toutes les lignes liées à ce secteur : responsables, jeunes filles, jeunes garçons, associations et membres concernés.',detail:'Toutes les données rattachées seront supprimées définitivement.'}))return;
       try{const out=await FCK.save('delete-sector',{id});FCK.toast(out?.message||'Secteur et données liées supprimés.');data=await FCK.loadData(true);render()}catch(err){FCK.toast(err.message,'error')}return;
     }
     approvalDelete('delete-sector',id,'secteur et toutes les données qui lui sont liées',async()=>{data=await FCK.loadData(true);render()});
@@ -179,7 +179,7 @@
   async function removeYoung(type,id,after){
     const action=type==='girls'?'delete-girl':'delete-boy';
     if(isAdmin()){
-      if(!confirm('Confirmer la suppression ?'))return;
+      if(!await FCK.confirmPopup({title:'Confirmer la suppression',message:'Voulez-vous vraiment supprimer cet élément ?',detail:'Cette opération est définitive.'}))return;
       try{await FCK.save(action,{id});FCK.toast('Élément supprimé.');data=await FCK.loadData(true);render();after?.()}catch(err){FCK.toast(err.message,'error')}return;
     }
     approvalDelete(action,id,'élément',async()=>{data=await FCK.loadData(true);render();after?.()});

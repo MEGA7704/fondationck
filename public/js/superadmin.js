@@ -56,7 +56,7 @@
     el.querySelectorAll('[data-plan]').forEach(b=>b.addEventListener('click',()=>openPlan(filtered.find(x=>x.id===b.dataset.plan))));
     el.querySelectorAll('[data-reset]').forEach(b=>b.addEventListener('click',()=>openReset(filtered.find(x=>x.id===b.dataset.reset))));
     el.querySelectorAll('[data-access]').forEach(b=>b.addEventListener('click',()=>openAccess(filtered.find(x=>x.id===b.dataset.access))));
-    el.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>{const u=filtered.find(x=>x.id===b.dataset.delete);if(confirm(`Supprimer définitivement le compte de ${u.full_name} ?`))post('delete-user',{id:u.id},'Compte supprimé.')}));
+    el.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',async()=>{const u=filtered.find(x=>x.id===b.dataset.delete);if(!u)return;const ok=await FCK.confirmPopup({title:'Supprimer le compte',message:`Voulez-vous supprimer définitivement le compte de ${u.full_name} ?`,detail:'Le compte, ses accès et ses sessions seront supprimés. Cette action est irréversible.'});if(ok)post('delete-user',{id:u.id},'Compte supprimé.')}));
   }
 
   async function post(action,payload,msg){
