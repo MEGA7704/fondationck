@@ -1,0 +1,41 @@
+LA FONDATION CK — CONFIGURATION CLOUDFLARE PAGES EXACTE
+
+Projet Cloudflare Pages : fondationck
+Branche de production : main
+Framework preset : None
+Build command : LAISSER VIDE
+Build output directory : public
+Root directory : /
+Node.js : 20 (facultatif si aucun build n'est exécuté)
+
+VARIABLES / SECRETS — ENVIRONNEMENT PRODUCTION
+Type Secret : SUPERADMIN_EMAIL = votre adresse Super Admin
+Type Secret : SUPERADMIN_PASSWORD = votre mot de passe Super Admin
+NE PAS publier leurs valeurs dans GitHub.
+
+BINDING KV
+Nom de variable : FONDATIONCK_KV
+Namespace : fondationck-kv
+ID : ab4c34a92321484f907ac2793f7ab9d3
+
+BINDING D1
+Nom de variable : FONDATIONCK_DB
+Database : fondationck-d1
+ID : e132c09c-f482-41a6-9c99-d5171d7531c1
+
+Après toute modification des secrets ou bindings : lancer un nouveau déploiement Production.
+
+TESTS APRES DEPLOIEMENT
+1. https://fondationck.pages.dev/api/system-status
+2. https://fondationck.pages.dev/api/public-home
+
+/api/system-status doit afficher notamment :
+"database_binding": true
+"kv_binding": true
+"superadmin_email_configured": true
+"superadmin_password_configured": true
+"organization_exists": true
+"superadmin_exists": true
+"superadmin_credential_exists": true
+
+Si les deux champs superadmin_*_configured sont false : les secrets ne sont pas disponibles dans l'environnement Production du déploiement.

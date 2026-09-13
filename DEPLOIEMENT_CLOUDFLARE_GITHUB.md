@@ -1,51 +1,102 @@
-# Déploiement Cloudflare Pages + GitHub
+# Déploiement exact — LA FONDATION CK V2
 
 ## 1. GitHub
 
-Créez un dépôt, par exemple `la-fondation-ck`, puis envoyez le contenu du projet.
+Décompressez le ZIP. Le dépôt GitHub doit avoir directement à sa racine :
 
-```bash
-git init
-git add .
-git commit -m "Initial LA FONDATION CK"
-git branch -M main
-git remote add origin VOTRE_URL_GITHUB
-git push -u origin main
+```text
+public/
+migrations/
+package.json
+wrangler.toml
+README.md
+CLOUDFLARE_BUILD_EXACT.txt
+INITIALISATION_D1_COMPLETE.sql
 ```
+
+Ne placez pas ces fichiers dans un sous-dossier supplémentaire.
 
 ## 2. Cloudflare Pages
 
-Créez un projet Pages à partir du dépôt GitHub. Utilisez le dossier de sortie `public`.
+Connectez le dépôt au projet **fondationck**.
 
-Le fichier `public/_worker.js` est le Worker avancé du projet. Il intercepte les routes `/api/*` et `/media/*`, puis laisse les autres requêtes être servies depuis les fichiers statiques Pages.
+Configuration :
 
-## 3. D1 et KV
+```text
+Production branch: main
+Framework preset: None
+Build command: [vide]
+Build output directory: public
+Root directory: /
+```
 
-Les identifiants fournis sont déjà présents dans `wrangler.toml`. Appliquez les migrations D1 :
+## 3. Bindings Production
+
+KV :
+
+```text
+Variable name: FONDATIONCK_KV
+Namespace: fondationck-kv
+ID: ab4c34a92321484f907ac2793f7ab9d3
+```
+
+D1 :
+
+```text
+Variable name: FONDATIONCK_DB
+Database: fondationck-d1
+ID: e132c09c-f482-41a6-9c99-d5171d7531c1
+```
+
+## 4. Secrets Production
+
+Dans Paramètres > Variables et secrets > environnement Production :
+
+```text
+SUPERADMIN_EMAIL     Type: Secret
+SUPERADMIN_PASSWORD  Type: Secret
+```
+
+Définissez vos propres valeurs. Ne publiez jamais le mot de passe.
+
+Après ajout/modification d'un secret ou binding, lancez un **nouveau déploiement Production**.
+
+## 5. Base D1
+
+Si les tables existent déjà, ne les supprimez pas.
+
+Pour une nouvelle base :
 
 ```bash
+npm install
 npx wrangler d1 migrations apply fondationck-d1 --remote
 ```
 
-## 4. Compte Super Admin sans secret publié
+Alternative : copier `INITIALISATION_D1_COMPLETE.sql` dans la console D1.
 
-Dans Cloudflare, ajoutez les secrets :
+## 6. Test obligatoire V2
 
-```bash
-npx wrangler pages secret put SUPERADMIN_EMAIL --project-name la-fondation-ck
-npx wrangler pages secret put SUPERADMIN_PASSWORD --project-name la-fondation-ck
+Après le déploiement, ouvrez :
+
+```text
+https://fondationck.pages.dev/api/system-status
 ```
 
-Choisissez vous-même les valeurs quand Wrangler vous les demande. **Ne mettez jamais le mot de passe dans GitHub, dans un fichier JavaScript ou dans une page HTML.**
+Tous les indicateurs doivent être `true`, notamment :
 
-Au premier appel API après déploiement, le Worker crée automatiquement le compte Super Admin s’il n’existe pas déjà.
+```text
+superadmin_email_configured
+superadmin_password_configured
+superadmin_exists
+superadmin_credential_exists
+```
 
-## 5. Vérification après déploiement
+La visite de cette route déclenche aussi l'auto-réparation du Super Admin avant d'afficher l'état.
 
-- Ouvrir la page Accueil et vérifier le logo et les deux photos en arrière-plan.
-- Créer un compte visiteur et vérifier le plan Free 10 jours.
-- Se connecter avec le Super Admin et créer l’Administrateur principal.
-- Depuis le Super Admin, activer le plan voulu pour l’Administrateur.
-- Depuis l’Administrateur, créer des secteurs, responsables, jeunes filles/garçons et utilisateurs.
-- Dans Paramètre, publier une Nouvelle du jour avec une image.
-- Tester la demande Mot de passe oublié pour un utilisateur puis pour un Administrateur.
+Ensuite ouvrez :
+
+```text
+https://fondationck.pages.dev/connexion.html
+```
+
+et utilisez exactement les valeurs des secrets `SUPERADMIN_EMAIL` et `SUPERADMIN_PASSWORD`.

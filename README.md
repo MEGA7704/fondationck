@@ -1,86 +1,99 @@
-# LA FONDATION CK — Cloudflare Pages + GitHub + D1 + KV
+# LA FONDATION CK — V2 corrigée complète
 
-Projet prêt à déposer sur GitHub puis à connecter à **Cloudflare Pages**.
+Projet complet pour **GitHub + Cloudflare Pages + D1 + KV**.
 
-## Fonctionnalités incluses
+## Correctif principal V2 : Super Admin
 
-- Site public : **Accueil**, **Contacts**, **Connexion**, **Créer un compte**.
-- Espace connecté : **Accueil**, **Secteur**, **Responsables**, **Jeunes filles**, **Jeunes garçons**, **Paramètre**.
-- Gestion des utilisateurs par l’Administrateur avec droits de visibilité par page.
-- Espace **Super Admin** séparé : création d’Administrateurs, activation/désactivation, suppression de comptes, réinitialisation des mots de passe, gestion des abonnements, gestion des accès et journal de sécurité.
-- Actualités : création d’une page d’information avec image, affichée sous forme de carte sur l’accueil.
-- Images d’actualités stockées dans KV ; données structurées dans D1.
-- Plans : Free 10 jours, Standard 30 jours / 5 100 F, Business 365 jours / 45 600 F.
-- Popup du plan Free à la connexion puis toutes les 15 minutes.
-- Paiement Wave préconfiguré dans la page Paramètre.
+La V2 corrige le cas où la page publique fonctionne mais le Super Admin reste absent de D1 et la connexion affiche « Identifiants incorrects ».
 
-## Bindings Cloudflare déjà configurés
+Le Worker :
+- vérifie les secrets `SUPERADMIN_EMAIL` et `SUPERADMIN_PASSWORD` uniquement côté serveur ;
+- crée/répare automatiquement l'organisation principale ;
+- crée automatiquement le compte `superadmin` s'il manque ;
+- crée son empreinte PBKDF2 dans `credentials` sans publier le mot de passe ;
+- si l'utilisateur saisit directement les secrets Super Admin alors que le compte D1 n'existe pas encore, `POST /api/login` force le bootstrap puis recharge le compte ;
+- resynchronise l'empreinte si le secret Cloudflare a été changé ;
+- retire le blocage de tentatives lié au compte après une réparation réussie ;
+- écrit `bootstrap:superadmin:v4 = 1` et `bootstrap:superadmin:status = ready` dans KV quand le bootstrap est terminé ;
+- fournit `/api/system-status` pour vérifier les bindings et le bootstrap sans exposer aucun secret.
 
-- KV : `fondationck-kv` — ID `ab4c34a92321484f907ac2793f7ab9d3`
-- D1 : `fondationck-d1` — ID `e132c09c-f482-41a6-9c99-d5171d7531c1`
-- Binding KV utilisé par le Worker : `FONDATIONCK_KV`
-- Binding D1 utilisé par le Worker : `FONDATIONCK_DB`
+## Fonctionnalités
 
-## Déploiement rapide
+- Public : Accueil, Contacts, Connexion, Créer un compte.
+- Administrateur : Accueil, Secteur, Responsables, Jeunes filles, Jeunes garçons, Paramètre.
+- Gestion des utilisateurs et des accès par page.
+- Espace Super Admin : comptes, activation/désactivation, suppression autorisée, assistance mot de passe, plans, accès, journal d'audit.
+- Nouvelles du jour avec image et page détaillée.
+- Plans : Free 10 jours ; Standard 30 jours / 5 100 F ; Business 365 jours / 45 600 F.
+- Popup Free à la connexion et toutes les 15 minutes.
+- Paiement Wave préconfiguré dans Paramètre.
 
-1. Créez un dépôt GitHub et déposez tout le contenu de ce dossier à la racine du dépôt.
-2. Dans Cloudflare Pages, créez un projet connecté à ce dépôt GitHub.
-3. Le répertoire publié est `public`. Aucun framework n’est nécessaire.
-4. Installez Wrangler localement si nécessaire : `npm install`.
-5. Appliquez les migrations D1 :
+## Configuration Cloudflare exacte
 
-```bash
-npm run db:migrate:remote
-```
+Consultez `CLOUDFLARE_BUILD_EXACT.txt`.
 
-6. Dans **Cloudflare Pages > Settings > Variables and Secrets**, créez **deux secrets** :
-   - `SUPERADMIN_EMAIL` : choisissez l’adresse e-mail du Super Admin.
-   - `SUPERADMIN_PASSWORD` : choisissez un mot de passe fort.
+- Projet Pages : `fondationck`
+- Branche : `main`
+- Framework preset : `None`
+- Build command : vide
+- Build output directory : `public`
+- Root directory : `/`
 
-**Aucun mot de passe Super Admin n’est fourni ni enregistré dans le dépôt.** Le Worker crée le compte côté serveur à partir des secrets Cloudflare, puis stocke uniquement une empreinte PBKDF2 dans la table `credentials`.
+Bindings :
+- `FONDATIONCK_KV` -> `fondationck-kv`
+- `FONDATIONCK_DB` -> `fondationck-d1`
 
-7. Vérifiez les bindings D1/KV dans Cloudflare si votre mode de déploiement ne reprend pas automatiquement `wrangler.toml`.
-8. Déployez le projet.
+Secrets Production :
+- `SUPERADMIN_EMAIL`
+- `SUPERADMIN_PASSWORD`
 
-## Sécurité mise en place
+Aucune valeur secrète n'est incluse dans le dépôt.
 
-- `POST /api/login` réel côté Worker.
-- Vérification des mots de passe uniquement dans `public/_worker.js`.
-- Les empreintes et sels ne sont jamais renvoyés au navigateur.
-- `GET /api/load` et `POST /api/save` exigent une session valide.
-- Cookie de session : `HttpOnly; Secure; SameSite=Lax`.
-- Jeton CSRF obligatoire pour les écritures authentifiées.
-- Contrôle serveur des rôles `member`, `admin`, `superadmin`.
-- Requêtes D1 limitées à `organization_id` de la session, sauf opérations Super Admin explicitement autorisées.
-- Un Administrateur ne peut pas modifier son propre plan ou son statut : ces opérations appartiennent au Super Admin.
-- Blocage des tentatives de connexion pendant 15 minutes par IP et par compte après plusieurs échecs.
-- Toute modification/réinitialisation de mot de passe incrémente `session_version`, ce qui invalide toutes les anciennes sessions.
-- Les mots de passe sont stockés dans `credentials`, séparément des données générales de `users`.
-- Migration défensive des anciens champs `users.password_hash` vers `credentials` si un ancien schéma est détecté.
-- Journal D1 des actions sensibles dans `audit_log`.
-- En-têtes de sécurité dans `public/_headers`.
+## D1
 
-## Mot de passe oublié
-
-- Le visiteur fait une demande depuis le lien **Mot de passe oublié ?**.
-- Si le compte est un **Administrateur**, la demande apparaît dans l’espace Super Admin.
-- Si le compte est un **utilisateur**, la demande apparaît dans Paramètre > Mots de passe oubliés de son Administrateur.
-- La réinitialisation impose un nouveau mot de passe temporaire et invalide toutes les anciennes sessions.
-
-## Paiement Wave
-
-- Standard : `5 100 F / 30 jours`.
-- Business : `45 600 F / 365 jours`.
-- L’activation du plan reste une action Super Admin afin de protéger les statuts d’abonnement.
-
-## Développement local
-
-Copiez `.dev.vars.example` vers `.dev.vars`, remplacez les valeurs par vos secrets locaux, puis :
+Pour une nouvelle base, appliquez les migrations :
 
 ```bash
 npm install
-npm run db:migrate:local
-npm run dev
+npm run db:migrate:remote
 ```
 
-Ne publiez jamais `.dev.vars`.
+Ou utilisez `INITIALISATION_D1_COMPLETE.sql` dans la console D1 Cloudflare.
+
+## Vérification après déploiement
+
+Ouvrez :
+
+```text
+https://fondationck.pages.dev/api/system-status
+```
+
+Le résultat attendu est :
+
+```json
+{
+  "ok": true,
+  "database_binding": true,
+  "kv_binding": true,
+  "superadmin_email_configured": true,
+  "superadmin_password_configured": true,
+  "organization_exists": true,
+  "superadmin_exists": true,
+  "superadmin_credential_exists": true
+}
+```
+
+Puis connectez-vous depuis `/connexion.html` avec les valeurs définies dans les deux secrets Cloudflare.
+
+## Sécurité
+
+- `POST /api/login` côté serveur.
+- Hash/sels jamais envoyés au navigateur.
+- Sessions KV protégées, cookie `HttpOnly; Secure; SameSite=Lax`.
+- CSRF obligatoire sur les écritures authentifiées.
+- Contrôles serveur des rôles et de l'organisation.
+- Abonnements protégés des modifications non autorisées.
+- Limitation des tentatives de connexion par IP et compte pendant 15 minutes.
+- Invalidation des sessions après modification/réinitialisation de mot de passe.
+- Mots de passe séparés dans `credentials`.
+- Journal des actions sensibles dans `audit_log`.

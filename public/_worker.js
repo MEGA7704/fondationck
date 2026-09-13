@@ -31,6 +31,7 @@ export default {
 
 async function handleApi(request, env, ctx, url) {
   const path = url.pathname;
+  if (path === '/api/system-status' && request.method === 'GET') return systemStatus(env);
   if (path === '/api/public-home' && request.method === 'GET') return publicHome(env);
   if (path === '/api/news-detail' && request.method === 'GET') return publicNewsDetail(env, url);
   if (path === '/api/contact' && request.method === 'POST') return saveContact(request, env);
@@ -75,29 +76,119 @@ async function ensureRuntimeSecurityMigration(env) {
 }
 
 async function ensureSuperAdmin(env, request) {
-  if (!env.SUPERADMIN_EMAIL || !env.SUPERADMIN_PASSWORD) return;
-  const onceKey = 'bootstrap:superadmin:v2';
-  if (await env.FONDATIONCK_KV.get(onceKey)) return;
+  // Auto-réparation du Super Admin sur chaque appel API.
+  // Aucun secret n'est renvoyé au navigateur ni stocké en clair dans D1.
+  if (!env.FONDATIONCK_DB || !env.FONDATIONCK_KV) return { ok: false, reason: 'bindings_missing' };
+  if (!env.SUPERADMIN_EMAIL || !env.SUPERADMIN_PASSWORD) {
+    try { await env.FONDATIONCK_KV.put('bootstrap:superadmin:status', 'missing_secrets', { expirationTtl: 3600 }); } catch {}
+    return { ok: false, reason: 'missing_secrets' };
+  }
+
+  const email = normalizeEmail(env.SUPERADMIN_EMAIL);
+  if (!validEmail(email)) {
+    try { await env.FONDATIONCK_KV.put('bootstrap:superadmin:status', 'invalid_email', { expirationTtl: 3600 }); } catch {}
+    return { ok: false, reason: 'invalid_email' };
+  }
+
+  const now = isoNow();
+  const far = '2099-12-31T23:59:59.000Z';
+
   try {
-    const email = normalizeEmail(env.SUPERADMIN_EMAIL);
-    let user = await env.FONDATIONCK_DB.prepare('SELECT id FROM users WHERE email = ? COLLATE NOCASE').bind(email).first();
+    // Garantit l'organisation racine, même si une migration/initialisation a été partielle.
+    await env.FONDATIONCK_DB.prepare(`
+      INSERT INTO organizations (id, name, slug, status)
+      VALUES (?, 'LA FONDATION CK', 'la-fondation-ck', 'active')
+      ON CONFLICT(id) DO UPDATE SET status='active'
+    `).bind(DEFAULT_ORG_ID).run();
+
+    let user = await env.FONDATIONCK_DB.prepare(
+      'SELECT id, role, status FROM users WHERE email = ? COLLATE NOCASE'
+    ).bind(email).first();
+
     if (!user) {
       const id = crypto.randomUUID();
-      const now = isoNow();
-      const far = '2099-12-31T23:59:59.000Z';
-      await env.FONDATIONCK_DB.batch([
-        env.FONDATIONCK_DB.prepare(`
-          INSERT INTO users (id, organization_id, email, full_name, phone, role, status, plan, plan_started_at, plan_expires_at, must_change_password, access_json)
-          VALUES (?, NULL, ?, 'Super Admin', '', 'superadmin', 'active', 'business', ?, ?, 0, '{}')
-        `).bind(id, email, now, far),
-        env.FONDATIONCK_DB.prepare(`INSERT INTO credentials (user_id, password_hash) VALUES (?, ?)`).bind(id, await hashPassword(env.SUPERADMIN_PASSWORD))
-      ]);
-      await audit(env, null, id, 'superadmin', 'BOOTSTRAP_SUPERADMIN', 'user', id, getIp(request), { email });
+      await env.FONDATIONCK_DB.prepare(`
+        INSERT INTO users (
+          id, organization_id, email, full_name, phone, role, status, plan,
+          plan_started_at, plan_expires_at, must_change_password, access_json, session_version
+        ) VALUES (?, ?, ?, 'Super Admin', '', 'superadmin', 'active', 'business', ?, ?, 0, '{}', 1)
+      `).bind(id, DEFAULT_ORG_ID, email, now, far).run();
+      user = { id, role: 'superadmin', status: 'active' };
+    } else {
+      await env.FONDATIONCK_DB.prepare(`
+        UPDATE users
+        SET organization_id = ?, role = 'superadmin', status = 'active', plan = 'business',
+            plan_started_at = CASE WHEN plan_started_at IS NULL OR plan_started_at = '' THEN ? ELSE plan_started_at END,
+            plan_expires_at = ?, must_change_password = 0,
+            access_json = '{}', updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).bind(DEFAULT_ORG_ID, now, far, user.id).run();
     }
-    await env.FONDATIONCK_KV.put(onceKey, '1');
+
+    const credential = await env.FONDATIONCK_DB.prepare(
+      'SELECT user_id FROM credentials WHERE user_id = ?'
+    ).bind(user.id).first();
+
+    // Le hash n'est généré que si les identifiants n'existent pas encore.
+    // Si le secret est modifié plus tard dans Cloudflare, /api/login le resynchronise
+    // uniquement lorsque la valeur secrète saisie correspond exactement au secret runtime.
+    if (!credential) {
+      const passwordHash = await hashPassword(String(env.SUPERADMIN_PASSWORD));
+      await env.FONDATIONCK_DB.prepare(`
+        INSERT INTO credentials (user_id, password_hash, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+      `).bind(user.id, passwordHash).run();
+    }
+
+    // Nettoyage du blocage par compte après bootstrap/réparation.
+    try { await env.FONDATIONCK_KV.delete(`login:acct:${await sha256Hex(email)}`); } catch {}
+
+    await audit(env, DEFAULT_ORG_ID, user.id, 'superadmin', 'BOOTSTRAP_SUPERADMIN', 'user', user.id, getIp(request), { configured: true });
+    await env.FONDATIONCK_KV.put('bootstrap:superadmin:v4', '1');
+    await env.FONDATIONCK_KV.put('bootstrap:superadmin:status', 'ready');
+    await env.FONDATIONCK_KV.delete('bootstrap:superadmin:error');
+    return { ok: true, user_id: user.id };
   } catch (e) {
-    console.warn('Superadmin bootstrap pending:', e?.message || e);
+    const message = clean(e?.message || String(e), 500);
+    console.warn('Superadmin bootstrap pending:', message);
+    try {
+      await env.FONDATIONCK_KV.put('bootstrap:superadmin:status', 'error', { expirationTtl: 3600 });
+      await env.FONDATIONCK_KV.put('bootstrap:superadmin:error', message, { expirationTtl: 3600 });
+    } catch {}
+    return { ok: false, reason: 'database_error' };
   }
+}
+
+async function systemStatus(env) {
+  const status = {
+    ok: true,
+    database_binding: !!env.FONDATIONCK_DB,
+    kv_binding: !!env.FONDATIONCK_KV,
+    superadmin_email_configured: !!env.SUPERADMIN_EMAIL,
+    superadmin_password_configured: !!env.SUPERADMIN_PASSWORD,
+    organization_exists: false,
+    superadmin_exists: false,
+    superadmin_credential_exists: false
+  };
+  if (!env.FONDATIONCK_DB) return json(status);
+  try {
+    const org = await env.FONDATIONCK_DB.prepare('SELECT id FROM organizations WHERE id=?').bind(DEFAULT_ORG_ID).first();
+    status.organization_exists = !!org;
+    if (env.SUPERADMIN_EMAIL) {
+      const email = normalizeEmail(env.SUPERADMIN_EMAIL);
+      const user = await env.FONDATIONCK_DB.prepare(`
+        SELECT u.id, c.user_id AS credential_user_id
+        FROM users u LEFT JOIN credentials c ON c.user_id=u.id
+        WHERE u.email=? COLLATE NOCASE AND u.role='superadmin'
+      `).bind(email).first();
+      status.superadmin_exists = !!user;
+      status.superadmin_credential_exists = !!user?.credential_user_id;
+    }
+  } catch (e) {
+    status.ok = false;
+    status.database_error = true;
+  }
+  return json(status);
 }
 
 async function publicHome(env) {
@@ -174,14 +265,42 @@ async function login(request, env) {
   ]);
   if (ipBlocked || acctBlocked) return json({ ok: false, error: 'Trop de tentatives. Connexion bloquée pendant 15 minutes.' }, 429);
 
-  const user = await env.FONDATIONCK_DB.prepare(`
+  let user = await env.FONDATIONCK_DB.prepare(`
     SELECT u.*, c.password_hash, o.status AS organization_status
     FROM users u LEFT JOIN credentials c ON c.user_id = u.id
     LEFT JOIN organizations o ON o.id = u.organization_id
     WHERE u.email = ? COLLATE NOCASE
   `).bind(email).first();
 
-  const valid = user && user.password_hash && await verifyPassword(password, user.password_hash);
+  // Correctif V2 : si le compte Super Admin n'existe pas encore mais que
+  // l'identifiant/mot de passe saisis correspondent aux secrets Cloudflare,
+  // on déclenche immédiatement son bootstrap serveur puis on recharge le compte.
+  const matchesRuntimeSuperAdmin = !!(
+    env.SUPERADMIN_EMAIL && env.SUPERADMIN_PASSWORD &&
+    email === normalizeEmail(env.SUPERADMIN_EMAIL) &&
+    password === String(env.SUPERADMIN_PASSWORD)
+  );
+  if (!user && matchesRuntimeSuperAdmin) {
+    await ensureSuperAdmin(env, request);
+    user = await env.FONDATIONCK_DB.prepare(`
+      SELECT u.*, c.password_hash, o.status AS organization_status
+      FROM users u LEFT JOIN credentials c ON c.user_id = u.id
+      LEFT JOIN organizations o ON o.id = u.organization_id
+      WHERE u.email = ? COLLATE NOCASE
+    `).bind(email).first();
+  }
+
+  let valid = user && user.password_hash && await verifyPassword(password, user.password_hash);
+  if (!valid && user?.role === 'superadmin' && matchesRuntimeSuperAdmin) {
+    const repairedHash = await hashPassword(password);
+    await env.FONDATIONCK_DB.prepare(`
+      INSERT INTO credentials (user_id, password_hash, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id) DO UPDATE SET password_hash = excluded.password_hash, updated_at = CURRENT_TIMESTAMP
+    `).bind(user.id, repairedHash).run();
+    user.password_hash = repairedHash;
+    valid = true;
+  }
   if (!valid) {
     await Promise.all([bumpLogin(env, ipKey), bumpLogin(env, acctKey)]);
     return json({ ok: false, error: 'Identifiants incorrects.' }, 401);
