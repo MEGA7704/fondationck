@@ -224,3 +224,13 @@ table.fck-action-table .action-cell>.badge{white-space:nowrap!important;font-siz
   table.fck-action-table.action-count-5 .action-col,table.fck-action-table.action-count-5 .action-cell{width:53%!important}
   table.fck-action-table.action-count-6 .action-col,table.fck-action-table.action-count-6 .action-cell{width:58%!important}
 }
+
+/* V2.9 — gestion synchronisée des secteurs et données électorales */
+.section-separator{margin-top:5px;padding:9px 12px;border-radius:10px;background:#eef7f2;color:#174c36;border-left:4px solid var(--green)}
+.sector-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:18px}
+.sector-summary>div{display:flex;flex-direction:column;gap:4px;min-width:0;padding:12px;border:1px solid var(--line);border-radius:13px;background:#f7faf8}
+.sector-summary strong{color:var(--green-deep);overflow-wrap:anywhere}
+.sector-list-block{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
+.section-head.compact{margin-bottom:10px;align-items:flex-end}.section-head.compact h3{margin:0;color:var(--green-deep)}.section-head.compact p{margin:3px 0 0;color:#66756d;font-size:.86rem}
+#sectorGirlsPrint td,#sectorBoysPrint td{font-size:clamp(.62rem,.74vw,.84rem)}
+@media(max-width:760px){.sector-summary{grid-template-columns:1fr}.section-head.compact{align-items:flex-start}.sector-list-block{margin-top:14px}}

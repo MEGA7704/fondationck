@@ -19,6 +19,7 @@ export default {
         await ensureAssociationsMigration(env);
         await ensureAssociationLeaderMigration(env);
         await ensureAccountRolesMigration(env);
+        await ensureSectorVotingMigration(env);
         await ensureSuperAdmin(env, request);
         return await handleApi(request, env, ctx, url);
       }
@@ -104,6 +105,46 @@ async function ensureHierarchyVillageMigration(env) {
     await env.FONDATIONCK_KV.put(key, '1');
   } catch (e) {
     console.warn('Hierarchy village migration pending:', e?.message || e);
+  }
+}
+
+
+async function ensureSectorVotingMigration(env) {
+  // V2.9 : responsable principal par secteur + données de vote et personnes alliées.
+  const key = 'migration:sector-voting-allies:v2.9';
+  try { if (await env.FONDATIONCK_KV.get(key)) return; } catch {}
+  const ensureColumn = async (table, column, ddl) => {
+    const info = await env.FONDATIONCK_DB.prepare(`PRAGMA table_info(${table})`).all();
+    if ((info.results || []).some(c => c.name === column)) return;
+    try { await env.FONDATIONCK_DB.prepare(ddl).run(); }
+    catch (e) { if (!/duplicate column name/i.test(String(e?.message || e))) throw e; }
+  };
+  try {
+    await ensureColumn('responsibles','is_primary',`ALTER TABLE responsibles ADD COLUMN is_primary INTEGER NOT NULL DEFAULT 0`);
+    await ensureColumn('girls','gender',`ALTER TABLE girls ADD COLUMN gender TEXT DEFAULT 'Féminin'`);
+    await ensureColumn('girls','polling_station',`ALTER TABLE girls ADD COLUMN polling_station TEXT DEFAULT ''`);
+    await ensureColumn('girls','voting_place',`ALTER TABLE girls ADD COLUMN voting_place TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally1_name',`ALTER TABLE girls ADD COLUMN ally1_name TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally1_gender',`ALTER TABLE girls ADD COLUMN ally1_gender TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally1_polling_station',`ALTER TABLE girls ADD COLUMN ally1_polling_station TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally1_voting_place',`ALTER TABLE girls ADD COLUMN ally1_voting_place TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally2_name',`ALTER TABLE girls ADD COLUMN ally2_name TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally2_gender',`ALTER TABLE girls ADD COLUMN ally2_gender TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally2_polling_station',`ALTER TABLE girls ADD COLUMN ally2_polling_station TEXT DEFAULT ''`);
+    await ensureColumn('girls','ally2_voting_place',`ALTER TABLE girls ADD COLUMN ally2_voting_place TEXT DEFAULT ''`);
+    await ensureColumn('boys','polling_station',`ALTER TABLE boys ADD COLUMN polling_station TEXT DEFAULT ''`);
+    await ensureColumn('boys','voting_place',`ALTER TABLE boys ADD COLUMN voting_place TEXT DEFAULT ''`);
+    await env.FONDATIONCK_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_responsibles_primary ON responsibles(organization_id,sector_id,is_primary DESC)`).run();
+    const sectors = await env.FONDATIONCK_DB.prepare(`SELECT id,organization_id FROM sectors`).all();
+    for (const sector of (sectors.results || [])) {
+      const current = await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? AND is_primary=1 LIMIT 1`).bind(sector.organization_id,sector.id).first();
+      if (current) continue;
+      const first = await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? ORDER BY datetime(created_at),full_name LIMIT 1`).bind(sector.organization_id,sector.id).first();
+      if (first) await env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET is_primary=1 WHERE id=? AND organization_id=?`).bind(first.id,sector.organization_id).run();
+    }
+    await env.FONDATIONCK_KV.put(key,'1');
+  } catch (e) {
+    console.warn('Sector voting migration pending:', e?.message || e);
   }
 }
 
@@ -613,7 +654,24 @@ async function loadData(env, session, url) {
   const add = (name, promise) => { assign.push(name); jobs.push(promise); };
 
   if (scope === 'sectors' && access.sectors) {
-    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
+    add('sectors', env.FONDATIONCK_DB.prepare(`
+      SELECT s.*,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name,
+        (SELECT r.phone FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_phone,
+        (SELECT r.id FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_id
+      FROM sectors s WHERE s.organization_id=? ORDER BY s.name,s.locality
+    `).bind(orgId).all());
+    add('responsibles', env.FONDATIONCK_DB.prepare(`SELECT r.*,s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.is_primary DESC,r.full_name`).bind(orgId).all());
+    if (access.girls) add('girls', env.FONDATIONCK_DB.prepare(`
+      SELECT g.*,s.name AS sector_name,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name
+      FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name
+    `).bind(orgId).all());
+    if (access.boys) add('boys', env.FONDATIONCK_DB.prepare(`
+      SELECT b.*,s.name AS sector_name,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name
+      FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name
+    `).bind(orgId).all());
   }
   if (scope === 'responsibles' && access.responsibles) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
@@ -637,11 +695,11 @@ async function loadData(env, session, url) {
   }
   if (scope === 'girls' && access.girls) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
-    add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*, s.name AS sector_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
+    add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*,s.name AS sector_name,(SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
   }
   if (scope === 'boys' && access.boys) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
-    add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*, s.name AS sector_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
+    add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*,s.name AS sector_name,(SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
   }
   if (scope === 'report' && access.reports) {
     add('report_totals', env.FONDATIONCK_DB.prepare(`
@@ -654,13 +712,13 @@ async function loadData(env, session, url) {
         (SELECT COUNT(*) FROM boys WHERE organization_id=?) AS boys
     `).bind(orgId,orgId,orgId,orgId,orgId,orgId).first());
     add('report_by_sector', env.FONDATIONCK_DB.prepare(`
-      SELECT s.id,s.name,s.locality,s.village,
+      SELECT s.id,s.name,s.locality,
         (SELECT COUNT(*) FROM responsibles r WHERE r.organization_id=? AND r.sector_id=s.id) AS responsibles,
         (SELECT COUNT(*) FROM associations a WHERE a.organization_id=? AND a.sector_id=s.id) AS associations,
         (SELECT COUNT(*) FROM girls g WHERE g.organization_id=? AND g.sector_id=s.id) AS girls,
         (SELECT COUNT(*) FROM boys b WHERE b.organization_id=? AND b.sector_id=s.id) AS boys
       FROM sectors s WHERE s.organization_id=?
-      ORDER BY s.name,s.locality,s.village
+      ORDER BY s.name,s.locality
     `).bind(orgId,orgId,orgId,orgId,orgId).all());
     add('report_by_association', env.FONDATIONCK_DB.prepare(`
       SELECT a.id,a.name,a.responsible_name,a.acronym,a.activity_area,a.locality,
@@ -720,16 +778,16 @@ async function saveData(request, env, session) {
 
   const principalOnly = new Set(['add-news','update-news','delete-news','update-site-content','create-user','update-user-access','reset-member-password','resolve-member-reset']);
   const entityPage = {
-    'add-sector':'sectors','update-sector':'sectors','delete-sector':'sectors',
+    'add-sector':'sectors','update-sector':'sectors','delete-sector':'sectors','add-sector-with-responsible':'sectors','update-sector-with-responsible':'sectors',
     'add-responsible':'responsibles','update-responsible':'responsibles','delete-responsible':'responsibles',
     'add-association':'associations','update-association':'associations','delete-association':'associations',
     'add-association-member':'associations','update-association-member':'associations','delete-association-member':'associations',
     'add-girl':'girls','update-girl':'girls','delete-girl':'girls',
     'add-boy':'boys','update-boy':'boys','delete-boy':'boys'
   };
-  const addActions = new Set(['add-sector','add-responsible','add-association','add-association-member','add-girl','add-boy']);
+  const addActions = new Set(['add-sector','add-sector-with-responsible','add-responsible','add-association','add-association-member','add-girl','add-boy']);
   const guardedAgentActions = new Set([
-    'update-sector','delete-sector','update-responsible','delete-responsible',
+    'update-sector','update-sector-with-responsible','delete-sector','update-responsible','delete-responsible',
     'update-association','delete-association','update-association-member','delete-association-member',
     'update-girl','delete-girl','update-boy','delete-boy'
   ]);
@@ -753,7 +811,9 @@ async function saveData(request, env, session) {
   let result;
   switch (action) {
     case 'add-sector': result = await addSector(env, orgId, body); break;
+    case 'add-sector-with-responsible': result = await addSectorWithResponsible(env, orgId, body); break;
     case 'update-sector': result = await updateSector(env, orgId, body); break;
+    case 'update-sector-with-responsible': result = await updateSectorWithResponsible(env, orgId, body); break;
     case 'delete-sector': result = await deleteEntity(env, 'sectors', orgId, body.id); break;
     case 'add-responsible': result = await addResponsible(env, orgId, body); break;
     case 'update-responsible': result = await updateResponsible(env, orgId, body); break;
@@ -853,13 +913,46 @@ async function superAdminApi(request, env, session, url) {
 async function addSector(env, orgId, b) {
   const id = crypto.randomUUID();
   const name = clean(b.name, 140); if (!name) throw bad('Nom du secteur requis.');
-  await env.FONDATIONCK_DB.prepare('INSERT INTO sectors (id,organization_id,name,locality,village,description) VALUES (?,?,?,?,?,?)').bind(id, orgId, name, clean(b.locality,140), clean(b.village,140), clean(b.description,1000)).run();
+  await env.FONDATIONCK_DB.prepare('INSERT INTO sectors (id,organization_id,name,locality,village,description) VALUES (?,?,?,?,?,?)').bind(id, orgId, name, clean(b.locality,140), '', '').run();
   return { target_type:'sector', target_id:id };
 }
 async function updateSector(env, orgId, b) {
   const id=clean(b.id,80), name=clean(b.name,140); if(!id||!name) throw bad('Données incomplètes.');
-  const r=await env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village=?,description=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,clean(b.locality,140),clean(b.village,140),clean(b.description,1000),id,orgId).run();
+  const r=await env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,clean(b.locality,140),id,orgId).run();
   ensureChanged(r); return { target_type:'sector', target_id:id };
+}
+async function addSectorWithResponsible(env, orgId, b) {
+  const sectorId=crypto.randomUUID(), responsibleId=crypto.randomUUID();
+  const name=clean(b.name,140), locality=clean(b.locality,140), responsibleName=clean(b.responsible_name,140);
+  if(!name) throw bad('Nom du secteur requis.');
+  if(!responsibleName) throw bad('Nom du responsable requis.');
+  await env.FONDATIONCK_DB.batch([
+    env.FONDATIONCK_DB.prepare(`INSERT INTO sectors (id,organization_id,name,locality,village,description) VALUES (?,?,?,?, '', '')`).bind(sectorId,orgId,name,locality),
+    env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(responsibleId,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140))
+  ]);
+  return { target_type:'sector', target_id:sectorId, responsible_id:responsibleId };
+}
+async function updateSectorWithResponsible(env, orgId, b) {
+  const sectorId=clean(b.id,80), name=clean(b.name,140), locality=clean(b.locality,140), responsibleName=clean(b.responsible_name,140);
+  if(!sectorId||!name) throw bad('Données secteur incomplètes.');
+  if(!responsibleName) throw bad('Nom du responsable requis.');
+  const sector=await env.FONDATIONCK_DB.prepare(`SELECT id FROM sectors WHERE id=? AND organization_id=?`).bind(sectorId,orgId).first();
+  if(!sector) throw bad('Secteur introuvable.');
+  let principal=await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? ORDER BY is_primary DESC,datetime(created_at),full_name LIMIT 1`).bind(orgId,sectorId).first();
+  if(principal){
+    await env.FONDATIONCK_DB.batch([
+      env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,locality,sectorId,orgId),
+      env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,is_primary=1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140),principal.id,orgId),
+      env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET is_primary=0 WHERE organization_id=? AND sector_id=? AND id<>?`).bind(orgId,sectorId,principal.id)
+    ]);
+  } else {
+    const responsibleId=crypto.randomUUID();
+    await env.FONDATIONCK_DB.batch([
+      env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,locality,sectorId,orgId),
+      env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(responsibleId,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140))
+    ]);
+  }
+  return { target_type:'sector', target_id:sectorId };
 }
 async function addResponsible(env, orgId, b) {
   const id=crypto.randomUUID(), full=clean(b.full_name,140); if(!full) throw bad('Nom requis.');
@@ -867,7 +960,7 @@ async function addResponsible(env, orgId, b) {
   const sectorId = sector?.id || null;
   const locality = sector ? clean(sector.locality,140) : clean(b.locality,140);
   const village = sector ? clean(sector.village,140) : clean(b.village,140);
-  await env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village) VALUES (?,?,?,?,?,?,?,?,?)`).bind(id,orgId,sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),locality,village).run();
+  await env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,0)`).bind(id,orgId,sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),locality,village).run();
   return { target_type:'responsible', target_id:id };
 }
 async function updateResponsible(env, orgId, b) {
@@ -1045,13 +1138,39 @@ async function deleteAssociationChild(env, table, orgId, rawId) {
 async function addYoung(env, table, orgId, b) {
   const id=crypto.randomUUID(), full=clean(b.full_name,140); if(!full) throw bad('Nom requis.');
   const sectorId=await validSector(env,orgId,b.sector_id);
-  await env.FONDATIONCK_DB.prepare(`INSERT INTO ${table} (id,organization_id,sector_id,full_name,birth_date,phone,locality,occupation,status_label) VALUES (?,?,?,?,?,?,?,?,?)`).bind(id,orgId,sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif').run();
+  if(table==='girls'){
+    await env.FONDATIONCK_DB.prepare(`INSERT INTO girls (
+      id,organization_id,sector_id,full_name,birth_date,phone,locality,occupation,status_label,
+      gender,polling_station,voting_place,
+      ally1_name,ally1_gender,ally1_polling_station,ally1_voting_place,
+      ally2_name,ally2_gender,ally2_polling_station,ally2_voting_place
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      id,orgId,sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif',
+      clean(b.gender,30)||'Féminin',clean(b.polling_station,180),clean(b.voting_place,240),
+      clean(b.ally1_name,140),clean(b.ally1_gender,30),clean(b.ally1_polling_station,180),clean(b.ally1_voting_place,240),
+      clean(b.ally2_name,140),clean(b.ally2_gender,30),clean(b.ally2_polling_station,180),clean(b.ally2_voting_place,240)
+    ).run();
+  } else {
+    await env.FONDATIONCK_DB.prepare(`INSERT INTO boys (id,organization_id,sector_id,full_name,birth_date,phone,locality,occupation,status_label,polling_station,voting_place) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(
+      id,orgId,sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif',clean(b.polling_station,180),clean(b.voting_place,240)
+    ).run();
+  }
   return { target_type: table, target_id:id };
 }
 async function updateYoung(env, table, orgId, b) {
   const id=clean(b.id,80), full=clean(b.full_name,140); if(!id||!full) throw bad('Données incomplètes.');
   const sectorId=await validSector(env,orgId,b.sector_id);
-  const r=await env.FONDATIONCK_DB.prepare(`UPDATE ${table} SET sector_id=?,full_name=?,birth_date=?,phone=?,locality=?,occupation=?,status_label=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif',id,orgId).run(); ensureChanged(r);
+  let r;
+  if(table==='girls'){
+    r=await env.FONDATIONCK_DB.prepare(`UPDATE girls SET sector_id=?,full_name=?,birth_date=?,phone=?,locality=?,occupation=?,status_label=?,gender=?,polling_station=?,voting_place=?,ally1_name=?,ally1_gender=?,ally1_polling_station=?,ally1_voting_place=?,ally2_name=?,ally2_gender=?,ally2_polling_station=?,ally2_voting_place=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(
+      sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif',clean(b.gender,30)||'Féminin',clean(b.polling_station,180),clean(b.voting_place,240),clean(b.ally1_name,140),clean(b.ally1_gender,30),clean(b.ally1_polling_station,180),clean(b.ally1_voting_place,240),clean(b.ally2_name,140),clean(b.ally2_gender,30),clean(b.ally2_polling_station,180),clean(b.ally2_voting_place,240),id,orgId
+    ).run();
+  } else {
+    r=await env.FONDATIONCK_DB.prepare(`UPDATE boys SET sector_id=?,full_name=?,birth_date=?,phone=?,locality=?,occupation=?,status_label=?,polling_station=?,voting_place=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(
+      sectorId,full,clean(b.birth_date,20),clean(b.phone,40),clean(b.locality,140),clean(b.occupation,180),clean(b.status_label,80)||'Actif',clean(b.polling_station,180),clean(b.voting_place,240),id,orgId
+    ).run();
+  }
+  ensureChanged(r);
   return { target_type: table, target_id:id };
 }
 async function deleteEntity(env, table, orgId, rawId) {

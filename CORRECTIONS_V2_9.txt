@@ -1,0 +1,26 @@
+LA FONDATION CK — CORRECTIONS V2.9
+
+1. Page Secteur synchronisée
+- Menu horizontal : bouton Secteur conservé.
+- Tableau Secteur : suppression des colonnes Village et Description.
+- Colonnes : Secteur, Localité, Responsable, Contact, Jeunes filles, Jeunes garçons, Actions.
+- Bouton Ajouter secteur et responsable avec formulaire commun.
+- Action Ouvrir : affiche le responsable principal, la liste des jeunes filles et la liste des jeunes garçons du secteur.
+- Ajout, modification, suppression et impression depuis les listes du secteur selon les droits du compte.
+
+2. Jeunes filles
+- Ajout du sexe, bureau de vote et lieu de vote de la jeune fille.
+- Ajout de deux personnes alliées maximum.
+- Pour chaque allié : nom, sexe, bureau de vote, lieu de vote.
+- Le responsable du secteur est affiché dans les listes.
+
+3. Jeunes garçons
+- Contact, bureau de vote et lieu de vote.
+- Aucun champ allié.
+- Le responsable du secteur est affiché dans les listes.
+
+4. Synchronisation
+- Les pages Secteur, Responsables, Jeunes filles, Jeunes garçons et Rapport utilisent les mêmes données D1.
+- Toute modification enregistrée sur une page est visible sur les autres après rechargement.
+- Migration automatique et idempotente des colonnes V2.9 au premier appel API.
+- Aucune suppression de D1 ou KV nécessaire.

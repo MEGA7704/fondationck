@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS responsibles (
   email TEXT DEFAULT '',
   locality TEXT DEFAULT '',
   village TEXT DEFAULT '',
+  is_primary INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
@@ -73,6 +74,17 @@ CREATE TABLE IF NOT EXISTS girls (
   locality TEXT DEFAULT '',
   occupation TEXT DEFAULT '',
   status_label TEXT DEFAULT 'Active',
+  gender TEXT DEFAULT 'Féminin',
+  polling_station TEXT DEFAULT '',
+  voting_place TEXT DEFAULT '',
+  ally1_name TEXT DEFAULT '',
+  ally1_gender TEXT DEFAULT '',
+  ally1_polling_station TEXT DEFAULT '',
+  ally1_voting_place TEXT DEFAULT '',
+  ally2_name TEXT DEFAULT '',
+  ally2_gender TEXT DEFAULT '',
+  ally2_polling_station TEXT DEFAULT '',
+  ally2_voting_place TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
@@ -89,6 +101,8 @@ CREATE TABLE IF NOT EXISTS boys (
   locality TEXT DEFAULT '',
   occupation TEXT DEFAULT '',
   status_label TEXT DEFAULT 'Actif',
+  polling_station TEXT DEFAULT '',
+  voting_place TEXT DEFAULT '',
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
@@ -169,6 +183,7 @@ CREATE INDEX IF NOT EXISTS idx_users_org ON users(organization_id);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_sectors_org ON sectors(organization_id);
 CREATE INDEX IF NOT EXISTS idx_responsibles_org ON responsibles(organization_id);
+CREATE INDEX IF NOT EXISTS idx_responsibles_primary ON responsibles(organization_id, sector_id, is_primary DESC);
 CREATE INDEX IF NOT EXISTS idx_girls_org ON girls(organization_id);
 CREATE INDEX IF NOT EXISTS idx_boys_org ON boys(organization_id);
 CREATE INDEX IF NOT EXISTS idx_news_org_pub ON news(organization_id, published, published_at);

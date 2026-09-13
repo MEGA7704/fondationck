@@ -1,78 +1,62 @@
-# LA FONDATION CK — V2.8 corrigée complète
+# LA FONDATION CK — V2.9 corrigée complète
 
-Projet complet **GitHub + Cloudflare Pages + D1 + KV**.
+Projet **GitHub + Cloudflare Pages + D1 + KV**.
 
-## Nouveautés V2.8
+## Nouveautés V2.9
 
-### Associations
+### Secteur
 
-- Tableau **Liste des associations** simplifié.
-- Colonnes supprimées : **Village**, **Membres**, **Statut**.
-- Ajout de la colonne **Responsable**.
-- Le formulaire **Ajouter / Modifier une association** contient maintenant le champ obligatoire **Nom du responsable**.
-- Le responsable principal est automatiquement inscrit comme **première ligne de la liste des membres**.
-- Si le nom du responsable est modifié depuis la fiche Association, la première ligne de la liste des membres est mise à jour automatiquement.
-- La ligne du responsable principal est protégée : elle ne se modifie et ne se supprime pas directement depuis la liste des membres.
-- La section séparée **Responsables / Liste des responsables de l’association** a été supprimée de l’interface et de l’API de gestion.
-
-### Liste des membres
-
-Le tableau affiche désormais uniquement :
+La page **Secteur** devient une page de gestion synchronisée. Le tableau affiche :
 
 ```text
-Nom
-Sexe
-Contact
-Village
-Activité
-Actions
+Secteur | Localité | Responsable | Contact | Jeunes filles | Jeunes garçons | Actions
 ```
 
-Les colonnes **Localité**, **Adhésion** et **Statut** ont été retirées du tableau. Les champs restent disponibles dans le formulaire de membre afin de conserver les informations en base.
+Les colonnes **Village** et **Description** sont retirées du tableau et du formulaire Secteur.
 
-### Impression PDF
+Le bouton **Ajouter secteur et responsable** ouvre un formulaire commun contenant le secteur et son responsable principal. L’action **Ouvrir** affiche les listes des jeunes filles et des jeunes garçons rattachées au secteur avec le responsable du secteur.
 
-Les impressions des listes et du Rapport utilisent maintenant une présentation professionnelle :
+### Jeunes filles
 
-- A4 paysage ;
-- logo et identité de LA FONDATION CK ;
-- titre clair du document ;
-- date et heure d’édition ;
-- tableaux professionnels avec en-têtes verts et alternance des lignes ;
-- suppression automatique de la colonne Actions à l’impression ;
-- pied de page avec téléphone et e-mail de la Fondation.
+Chaque fiche peut enregistrer :
 
-Le bouton ouvre la boîte d’impression du navigateur, où l’utilisateur peut choisir **Enregistrer au format PDF**.
+- nom et contact ;
+- secteur et responsable ;
+- sexe ;
+- bureau de vote ;
+- lieu de vote ;
+- jusqu’à **deux personnes alliées** ;
+- pour chaque allié : nom, sexe, bureau de vote et lieu de vote.
 
-## Rôles
+### Jeunes garçons
 
-### Visiteur
-- Consultation des pages autorisées.
-- Aucune création, modification ou suppression.
-- Paramètre : **Mon compte uniquement**.
-- Abonnement hérité de l’Administrateur principal.
+Chaque fiche peut enregistrer :
 
-### Agent
-- Pages visibles configurables par l’Administrateur principal.
-- Ajout et impression selon autorisations.
-- Modification/suppression seulement avec mot de passe d’un Administrateur.
-- Paramètre : **Mon compte + Support technique**.
-- Abonnement hérité de l’Administrateur principal.
+- nom ;
+- secteur et responsable ;
+- contact ;
+- bureau de vote ;
+- lieu de vote.
 
-### Sous-administrateur
-- Accès complet aux pages de gestion opérationnelle.
-- Paramètre : **Mon compte + Support technique** uniquement.
-- Abonnement hérité de l’Administrateur principal.
+Aucune personne alliée n’est prévue pour les jeunes garçons.
 
-### Administrateur principal
-- Accès complet aux pages Secteur, Responsables, Associations, Jeunes filles, Jeunes garçons, Rapport et Paramètre.
-- Gestion des utilisateurs, accès Agent, nouvelles du jour, présentation publique, demandes de réinitialisation et messages.
-- Gestion de l’abonnement du groupe.
-- Le titre est attribué exclusivement par le Super Admin et est limité à une seule personne.
+### Synchronisation
 
-## Cloudflare
+Les pages **Secteur**, **Responsables**, **Jeunes filles**, **Jeunes garçons** et **Rapport** lisent les mêmes données D1. Les ajouts et modifications sont donc synchronisés entre les pages.
 
-Configuration de build :
+## Mise à niveau D1
+
+La V2.9 ajoute côté serveur :
+
+- `responsibles.is_primary` ;
+- informations de vote des jeunes filles et garçons ;
+- deux personnes alliées pour chaque jeune fille.
+
+Pour une base D1 existante, `_worker.js` applique automatiquement cette mise à niveau au premier appel API. **Ne supprimez ni D1 ni KV.**
+
+Les nouvelles installations disposent aussi du schéma complet dans `migrations/0001_schema.sql`.
+
+## Cloudflare Pages
 
 ```text
 Production branch: main
@@ -96,52 +80,22 @@ SUPERADMIN_EMAIL
 SUPERADMIN_PASSWORD
 ```
 
-Le mot de passe Super Admin n’est jamais publié dans le dépôt.
+## Déploiement
 
-## D1 — migration V2.8
+1. Remplacez le contenu du dépôt GitHub par celui de ce ZIP.
+2. Laissez Cloudflare redéployer `main`.
+3. Ne supprimez pas D1, KV ou les secrets.
+4. Ouvrez le site et faites `Ctrl + F5`.
+5. Le premier appel API applique automatiquement la migration V2.9 sur une base existante.
 
-La V2.8 ajoute :
+## Sécurité conservée
 
-```text
-migrations/0005_association_responsable_principal.sql
-```
-
-Elle ajoute :
-
-```text
-associations.responsible_name
-association_members.is_primary_responsible
-```
-
-Sur votre base existante, le Worker applique aussi cette mise à niveau automatiquement au premier appel API. **Ne supprimez pas D1.**
-
-Les anciennes données de `association_responsibles` sont conservées pour compatibilité et peuvent servir à initialiser automatiquement le responsable principal des associations existantes. La section séparée n’est plus utilisée dans l’application.
-
-Pour appliquer les migrations manuellement :
-
-```bash
-npm install
-npm run db:migrate:remote
-```
-
-## Sécurité
-
-- Authentification exclusivement côté serveur via `POST /api/login`.
-- Hash et sels jamais envoyés au navigateur.
-- Cookie `HttpOnly; Secure; SameSite=Lax`.
-- CSRF obligatoire pour les écritures.
-- Contrôles serveur des rôles et des autorisations.
-- Cloisonnement par organisation.
-- Plans protégés côté serveur.
-- Limitation des tentatives de connexion pendant 15 minutes.
-- Invalidation des sessions après changement/réinitialisation du mot de passe.
-- Journal des actions sensibles dans D1.
+- authentification serveur via `/api/login` ;
+- cookie HttpOnly, Secure, SameSite=Lax ;
+- CSRF obligatoire pour les écritures ;
+- contrôle serveur des rôles et autorisations ;
+- cloisonnement par organisation ;
+- limitation des tentatives de connexion ;
+- journal d’audit D1 ;
+- mots de passe exclusivement vérifiés côté serveur ;
 - PBKDF2 limité à 100000 itérations pour compatibilité Cloudflare.
-
-## Mise à jour depuis V2.6
-
-1. Remplacez tout le contenu du dépôt GitHub par le contenu de ce ZIP.
-2. Laissez Cloudflare redéployer la branche `main`.
-3. **Ne supprimez ni D1, ni KV, ni les secrets existants.**
-4. Ouvrez le site puis faites `Ctrl + F5`.
-5. Au premier appel API, la migration V2.8 est appliquée automatiquement.
