@@ -1,3 +1,7 @@
+## Correction V2.11
+
+Dans la Liste des secteurs, les colonnes de décompte « Jeunes filles » et « Jeunes garçons » ont été supprimées.
+
 # LA FONDATION CK — V2.10 corrigée complète
 
 Projet **GitHub + Cloudflare Pages + D1 + KV**.
