@@ -2,7 +2,8 @@ const DEFAULT_ORG_ID = 'org_fondation_ck';
 const SESSION_TTL = 60 * 60 * 12;
 const RATE_WINDOW = 60 * 15;
 const LOGIN_MAX_ATTEMPTS = 6;
-const PBKDF2_ITERATIONS = 210000;
+const PBKDF2_ITERATIONS = 100000;
+const PBKDF2_MAX_ITERATIONS = 100000;
 const encoder = new TextEncoder();
 
 export default {
@@ -711,7 +712,7 @@ async function hashPassword(password){
 }
 async function verifyPassword(password,serialized){
   const parts=String(serialized||'').split('$'); if(parts.length!==4||parts[0]!=='pbkdf2') return false;
-  const iterations=Number(parts[1]); if(!Number.isFinite(iterations)||iterations<100000) return false;
+  const iterations=Number(parts[1]); if(!Number.isFinite(iterations)||iterations<100000||iterations>PBKDF2_MAX_ITERATIONS) return false;
   const salt=fromB64(parts[2]), expected=fromB64(parts[3]);
   const key=await crypto.subtle.importKey('raw',encoder.encode(password),'PBKDF2',false,['deriveBits']);
   const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt,iterations},key,expected.length*8);

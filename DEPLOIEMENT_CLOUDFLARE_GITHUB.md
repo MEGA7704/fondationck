@@ -100,3 +100,13 @@ https://fondationck.pages.dev/connexion.html
 ```
 
 et utilisez exactement les valeurs des secrets `SUPERADMIN_EMAIL` et `SUPERADMIN_PASSWORD`.
+
+
+## Après mise à jour V2.1
+1. Remplacer tout le contenu du dépôt GitHub par celui de ce ZIP.
+2. Attendre le nouveau déploiement Production.
+3. Ouvrir `https://fondationck.pages.dev/api/system-status`.
+4. Le bootstrap Super Admin doit passer à `ready` et la clé KV `bootstrap:superadmin:error` est supprimée automatiquement.
+5. Se connecter avec les valeurs secrètes `SUPERADMIN_EMAIL` et `SUPERADMIN_PASSWORD`.
+
+Aucune suppression manuelle de D1 n'est nécessaire.

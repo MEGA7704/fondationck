@@ -97,3 +97,11 @@ Puis connectez-vous depuis `/connexion.html` avec les valeurs définies dans les
 - Invalidation des sessions après modification/réinitialisation de mot de passe.
 - Mots de passe séparés dans `credentials`.
 - Journal des actions sensibles dans `audit_log`.
+
+
+## Correctif V2.1 — PBKDF2 Cloudflare
+
+Cloudflare Pages/Workers refuse dans cet environnement les appels PBKDF2 dépassant 100 000 itérations.
+La V2.1 fixe donc `PBKDF2_ITERATIONS` à **100000** côté serveur dans `public/_worker.js`.
+La vérification rejette proprement tout ancien hash demandant plus de 100000 itérations au lieu de provoquer une erreur 500.
+Lorsqu'il s'agit du Super Admin et que les secrets Cloudflare correspondent, le hash est automatiquement régénéré à 100000 itérations.
