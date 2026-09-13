@@ -185,7 +185,7 @@ INSERT OR IGNORE INTO site_content (
   'Créer des actions utiles, inclusives et durables qui renforcent l’autonomie, la dignité et la participation citoyenne des bénéficiaires.',
   'Construire une communauté solidaire dans laquelle chaque jeune peut accéder à des opportunités, être accompagné et contribuer au développement de son milieu.',
   'Étendre progressivement les secteurs d’intervention, structurer les responsables locaux, renforcer la formation, l’accompagnement social et les partenariats de proximité.',
-  '', '', '', 'Côte d’Ivoire'
+  '0757577542 / 0545202646', '', 'oukami011@gmail.com', 'Côte d’Ivoire'
 );
 
 

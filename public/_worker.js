@@ -4,6 +4,9 @@ const RATE_WINDOW = 60 * 15;
 const LOGIN_MAX_ATTEMPTS = 6;
 const PBKDF2_ITERATIONS = 100000;
 const PBKDF2_MAX_ITERATIONS = 100000;
+const FOUNDATION_PHONE = '0757577542 / 0545202646';
+const FOUNDATION_WHATSAPP = '';
+const FOUNDATION_EMAIL = 'oukami011@gmail.com';
 const encoder = new TextEncoder();
 
 export default {
@@ -45,7 +48,7 @@ async function handleApi(request, env, ctx, url) {
   if (!session) return json({ ok: false, error: 'Session invalide ou expirée.' }, 401);
 
   if (path === '/api/logout' && request.method === 'POST') return logout(request, env, session);
-  if (path === '/api/load' && request.method === 'GET') return loadData(env, session);
+  if (path === '/api/load' && request.method === 'GET') return loadData(env, session, url);
   if (path === '/api/save' && request.method === 'POST') return saveData(request, env, session);
   if (path === '/api/upload-image' && request.method === 'POST') return uploadImage(request, env, session);
   if (path === '/api/superadmin') return superAdminApi(request, env, session, url);
@@ -80,6 +83,12 @@ async function ensureSuperAdmin(env, request) {
   // Auto-réparation du Super Admin sur chaque appel API.
   // Aucun secret n'est renvoyé au navigateur ni stocké en clair dans D1.
   if (!env.FONDATIONCK_DB || !env.FONDATIONCK_KV) return { ok: false, reason: 'bindings_missing' };
+  // Une fois le bootstrap confirmé, on évite plusieurs lectures/écritures D1 à chaque appel API.
+  // Le login Super Admin conserve son mécanisme de resynchronisation si le secret change.
+  try {
+    const ready = await env.FONDATIONCK_KV.get('bootstrap:superadmin:v4');
+    if (ready === '1') return { ok: true, cached: true };
+  } catch {}
   if (!env.SUPERADMIN_EMAIL || !env.SUPERADMIN_PASSWORD) {
     try { await env.FONDATIONCK_KV.put('bootstrap:superadmin:status', 'missing_secrets', { expirationTtl: 3600 }); } catch {}
     return { ok: false, reason: 'missing_secrets' };
@@ -193,13 +202,20 @@ async function systemStatus(env) {
 }
 
 async function publicHome(env) {
-  const content = await env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(DEFAULT_ORG_ID).first();
-  const news = await env.FONDATIONCK_DB.prepare(`
-    SELECT id, title, summary, image_key, published_at
-    FROM news WHERE organization_id = ? AND published = 1
-    ORDER BY datetime(published_at) DESC LIMIT 12
-  `).bind(DEFAULT_ORG_ID).all();
-  return json({ ok: true, content: content || {}, news: (news.results || []).map(n => ({ ...n, image_url: n.image_key ? `/media/${encodeURIComponent(n.image_key)}` : '' })) });
+  const [contentRow, news] = await Promise.all([
+    env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(DEFAULT_ORG_ID).first(),
+    env.FONDATIONCK_DB.prepare(`
+      SELECT id, title, summary, image_key, published_at
+      FROM news WHERE organization_id = ? AND published = 1
+      ORDER BY datetime(published_at) DESC LIMIT 12
+    `).bind(DEFAULT_ORG_ID).all()
+  ]);
+  const content = { ...(contentRow || {}) };
+  if (!clean(content.contact_phone, 80)) content.contact_phone = FOUNDATION_PHONE;
+  if (!clean(content.whatsapp, 80)) content.whatsapp = FOUNDATION_WHATSAPP;
+  if (!clean(content.contact_email, 180)) content.contact_email = FOUNDATION_EMAIL;
+  if (!clean(content.address, 500)) content.address = 'Côte d’Ivoire';
+  return json({ ok: true, content, news: (news.results || []).map(n => ({ ...n, image_url: n.image_key ? `/media/${encodeURIComponent(n.image_key)}` : '' })) }, 200, { 'Cache-Control': 'public, max-age=10, stale-while-revalidate=30' });
 }
 
 async function publicNewsDetail(env, url) {
@@ -211,7 +227,7 @@ async function publicNewsDetail(env, url) {
   `).bind(id, DEFAULT_ORG_ID).first();
   if (!item) return json({ ok: false, error: 'Actualité introuvable.' }, 404);
   item.image_url = item.image_key ? `/media/${encodeURIComponent(item.image_key)}` : '';
-  return json({ ok: true, item });
+  return json({ ok: true, item }, 200, { 'Cache-Control': 'public, max-age=30, stale-while-revalidate=60' });
 }
 
 async function saveContact(request, env) {
@@ -242,16 +258,16 @@ async function register(request, env) {
   const id = crypto.randomUUID();
   const start = isoNow();
   const expiry = addDays(start, 10);
-  const access = JSON.stringify({ home: true, sectors: true, responsibles: true, girls: true, boys: true, settings: true });
+  const access = JSON.stringify({ home: true, sectors: true, responsibles: true, girls: true, boys: true, settings: true, can_add: true, can_print: true, account_type: 'admin' });
   await env.FONDATIONCK_DB.batch([
     env.FONDATIONCK_DB.prepare(`
       INSERT INTO users (id, organization_id, email, full_name, phone, role, status, plan, plan_started_at, plan_expires_at, access_json)
-      VALUES (?, ?, ?, ?, ?, 'member', 'active', 'free', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, 'admin', 'active', 'free', ?, ?, ?)
     `).bind(id, DEFAULT_ORG_ID, email, fullName, phone, start, expiry, access),
     env.FONDATIONCK_DB.prepare('INSERT INTO credentials (user_id, password_hash) VALUES (?, ?)').bind(id, await hashPassword(password))
   ]);
-  await audit(env, DEFAULT_ORG_ID, id, 'member', 'REGISTER_ACCOUNT', 'user', id, ip, { email });
-  return json({ ok: true, message: 'Compte créé. Votre plan Free est actif pendant 10 jours.' }, 201);
+  await audit(env, DEFAULT_ORG_ID, id, 'admin', 'REGISTER_ADMIN_ACCOUNT', 'user', id, ip, { email });
+  return json({ ok: true, message: 'Compte Administrateur créé. Votre plan Free est actif pendant 10 jours.' }, 201);
 }
 
 async function login(request, env) {
@@ -340,7 +356,7 @@ async function requestPasswordReset(request, env) {
       `).bind(crypto.randomUUID(), user.organization_id, user.id, email, user.role).run();
     }
   }
-  return json({ ok: true, message: 'Demande enregistrée. Un Administrateur est réinitialisé par le Super Admin ; un utilisateur est réinitialisé par son Administrateur.' });
+  return json({ ok: true, message: 'Demande enregistrée. Un Administrateur ou Sous-administrateur est réinitialisé par le Super Admin ; un Agent est réinitialisé par son Administrateur.' });
 }
 
 async function logout(request, env, session) {
@@ -370,53 +386,56 @@ async function authenticate(request, env) {
   return { ...session, user };
 }
 
-async function loadData(env, session) {
+async function loadData(env, session, url) {
   const user = session.user;
   const orgId = user.role === 'superadmin' ? DEFAULT_ORG_ID : user.organization_id;
   const access = parseAccess(user.access_json, user.role);
   const subscriptionActive = isSubscriptionActive(user);
+  const scope = clean(url?.searchParams?.get('scope') || 'session', 30);
   const payload = {
-    ok: true,
-    user: sanitizeUser(user),
-    csrf_token: session.csrf,
-    access,
-    subscription_active: subscriptionActive,
-    plan: planInfo(user),
+    ok: true, user: sanitizeUser(user), csrf_token: session.csrf, access,
+    subscription_active: subscriptionActive, plan: planInfo(user),
     content: {}, sectors: [], responsibles: [], girls: [], boys: [], news: [], users: [], reset_requests: [], contact_messages: []
   };
   if (!subscriptionActive && user.role !== 'superadmin') return json(payload);
+  if (scope === 'session') return json(payload);
 
-  const queries = [
-    env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(orgId).first(),
-    access.sectors ? env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all() : Promise.resolve({ results: [] }),
-    access.responsibles ? env.FONDATIONCK_DB.prepare(`SELECT r.*, s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.full_name`).bind(orgId).all() : Promise.resolve({ results: [] }),
-    access.girls ? env.FONDATIONCK_DB.prepare(`SELECT g.*, s.name AS sector_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all() : Promise.resolve({ results: [] }),
-    access.boys ? env.FONDATIONCK_DB.prepare(`SELECT b.*, s.name AS sector_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all() : Promise.resolve({ results: [] }),
-    env.FONDATIONCK_DB.prepare('SELECT id,title,summary,content,image_key,published,published_at,created_at FROM news WHERE organization_id=? ORDER BY datetime(published_at) DESC').bind(orgId).all()
-  ];
-  const [content, sectors, responsibles, girls, boys, news] = await Promise.all(queries);
-  payload.content = content || {};
-  payload.sectors = sectors.results || [];
-  payload.responsibles = responsibles.results || [];
-  payload.girls = girls.results || [];
-  payload.boys = boys.results || [];
-  payload.news = (news.results || []).map(n => ({ ...n, image_url: n.image_key ? `/media/${encodeURIComponent(n.image_key)}` : '' }));
-
-  if (user.role === 'admin' || user.role === 'superadmin') {
-    const users = await env.FONDATIONCK_DB.prepare(`
-      SELECT id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json,created_at
-      FROM users WHERE organization_id=? ORDER BY role, full_name
-    `).bind(orgId).all();
-    payload.users = (users.results || []).map(sanitizeUser);
-    const resets = await env.FONDATIONCK_DB.prepare(`
-      SELECT r.id,r.email,r.target_role,r.status,r.requested_at,u.full_name
-      FROM password_reset_requests r LEFT JOIN users u ON u.id=r.user_id
-      WHERE r.organization_id=? AND r.status='pending' AND r.target_role='member'
-      ORDER BY datetime(r.requested_at) DESC
-    `).bind(orgId).all();
-    payload.reset_requests = resets.results || [];
-    const messages = await env.FONDATIONCK_DB.prepare(`SELECT * FROM contact_messages WHERE organization_id=? ORDER BY datetime(created_at) DESC LIMIT 100`).bind(orgId).all();
-    payload.contact_messages = messages.results || [];
+  const jobs = [];
+  const assign = [];
+  const add = (name, promise) => { assign.push(name); jobs.push(promise); };
+  if (scope === 'sectors' && access.sectors) add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+  if (scope === 'responsibles' && access.responsibles) {
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('responsibles', env.FONDATIONCK_DB.prepare(`SELECT r.*, s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.full_name`).bind(orgId).all());
+  }
+  if (scope === 'girls' && access.girls) {
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*, s.name AS sector_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
+  }
+  if (scope === 'boys' && access.boys) {
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*, s.name AS sector_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
+  }
+  if (scope === 'settings' && ['admin','superadmin'].includes(user.role)) {
+    add('content', env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(orgId).first());
+    add('news', env.FONDATIONCK_DB.prepare('SELECT id,title,summary,content,image_key,published,published_at,created_at FROM news WHERE organization_id=? ORDER BY datetime(published_at) DESC').bind(orgId).all());
+    add('users', env.FONDATIONCK_DB.prepare(`SELECT id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json,created_at FROM users WHERE organization_id=? ORDER BY role, full_name`).bind(orgId).all());
+    add('reset_requests', env.FONDATIONCK_DB.prepare(`SELECT r.id,r.email,r.target_role,r.status,r.requested_at,u.full_name FROM password_reset_requests r LEFT JOIN users u ON u.id=r.user_id WHERE r.organization_id=? AND r.status='pending' AND r.target_role='member' ORDER BY datetime(r.requested_at) DESC`).bind(orgId).all());
+    add('contact_messages', env.FONDATIONCK_DB.prepare('SELECT * FROM contact_messages WHERE organization_id=? ORDER BY datetime(created_at) DESC LIMIT 100').bind(orgId).all());
+  }
+  const results = await Promise.all(jobs);
+  for (let i=0;i<results.length;i++) {
+    const name=assign[i], value=results[i];
+    if (name==='content') payload.content=value||{};
+    else if (name==='users') payload.users=(value.results||[]).map(sanitizeUser);
+    else if (name==='news') payload.news=(value.results||[]).map(n=>({...n,image_url:n.image_key?`/media/${encodeURIComponent(n.image_key)}`:''}));
+    else payload[name]=value.results||[];
+  }
+  if (scope === 'settings') {
+    if (!clean(payload.content.contact_phone,80)) payload.content.contact_phone=FOUNDATION_PHONE;
+    if (!clean(payload.content.whatsapp,80)) payload.content.whatsapp=FOUNDATION_WHATSAPP;
+    if (!clean(payload.content.contact_email,180)) payload.content.contact_email=FOUNDATION_EMAIL;
+    if (!clean(payload.content.address,500)) payload.content.address='Côte d’Ivoire';
   }
   return json(payload);
 }
@@ -431,8 +450,28 @@ async function saveData(request, env, session) {
     return json({ ok: false, error: 'Votre abonnement a expiré. Activez un plan pour continuer.' }, 402);
   }
 
-  const adminOnly = new Set(['add-sector','update-sector','delete-sector','add-responsible','update-responsible','delete-responsible','add-girl','update-girl','delete-girl','add-boy','update-boy','delete-boy','add-news','update-news','delete-news','update-site-content','create-user','update-user-access','reset-member-password','resolve-member-reset']);
-  if (adminOnly.has(action) && !['admin','superadmin'].includes(user.role)) return json({ ok: false, error: 'Action réservée à l’administrateur.' }, 403);
+  const strictAdmin = new Set(['add-news','update-news','delete-news','update-site-content','create-user','update-user-access','reset-member-password','resolve-member-reset']);
+  const entityPage = {
+    'add-sector':'sectors','update-sector':'sectors','delete-sector':'sectors',
+    'add-responsible':'responsibles','update-responsible':'responsibles','delete-responsible':'responsibles',
+    'add-girl':'girls','update-girl':'girls','delete-girl':'girls',
+    'add-boy':'boys','update-boy':'boys','delete-boy':'boys'
+  };
+  const addActions = new Set(['add-sector','add-responsible','add-girl','add-boy']);
+  const guardedAgentActions = new Set(['update-sector','delete-sector','update-responsible','delete-responsible','update-girl','delete-girl','update-boy','delete-boy']);
+  if (strictAdmin.has(action) && !['admin','superadmin'].includes(user.role)) return json({ ok: false, error: 'Action réservée à l’Administrateur.' }, 403);
+  let approvalAdminId = '';
+  if (user.role === 'member' && action !== 'change-own-password') {
+    const memberAccess = parseAccess(user.access_json, user.role);
+    const pageKey = entityPage[action];
+    if (!pageKey || !memberAccess[pageKey]) return json({ ok: false, error: 'Action non autorisée pour cet Agent.' }, 403);
+    if (addActions.has(action) && memberAccess.can_add === false) return json({ ok: false, error: 'Votre Administrateur n’a pas autorisé l’ajout de lignes.' }, 403);
+    if (guardedAgentActions.has(action)) {
+      const approved = await verifyAdminApproval(env, user, body.admin_password, request);
+      if (!approved.ok) return json({ ok: false, error: approved.error }, approved.status || 403);
+      approvalAdminId = approved.admin_id || '';
+    }
+  }
 
   let result;
   switch (action) {
@@ -452,14 +491,14 @@ async function saveData(request, env, session) {
     case 'update-news': result = await updateNews(env, orgId, body); break;
     case 'delete-news': result = await deleteNews(env, orgId, body.id); break;
     case 'update-site-content': result = await updateSiteContent(env, orgId, body); break;
-    case 'create-user': result = await createMember(env, orgId, body); break;
+    case 'create-user': result = await createMember(env, orgId, body, user); break;
     case 'update-user-access': result = await updateMemberAccess(env, orgId, body); break;
     case 'reset-member-password': result = await resetMemberPassword(env, orgId, body); break;
     case 'resolve-member-reset': result = await resolveMemberReset(env, orgId, body, user.id); break;
     case 'change-own-password': result = await changeOwnPassword(env, user, body); break;
     default: return json({ ok: false, error: 'Action non autorisée.' }, 400);
   }
-  await audit(env, orgId, user.id, user.role, `SAVE_${action.toUpperCase()}`, result?.target_type || '', result?.target_id || '', getIp(request), result?.audit || {});
+  await audit(env, orgId, user.id, user.role, `SAVE_${action.toUpperCase()}`, result?.target_type || '', result?.target_id || '', getIp(request), { ...(result?.audit || {}), ...(approvalAdminId ? { approval_admin_id: approvalAdminId } : {}) });
   return json({ ok: true, ...(result || {}) });
 }
 
@@ -515,8 +554,7 @@ async function superAdminApi(request, env, session, url) {
   const body = await safeJson(request);
   const action = clean(body.action, 80);
   let result;
-  if (action === 'create-admin') result = await superCreateAdmin(env, body);
-  else if (action === 'set-status') result = await superSetStatus(env, session.user.id, body);
+  if (action === 'set-status') result = await superSetStatus(env, session.user.id, body);
   else if (action === 'delete-user') result = await superDeleteUser(env, session.user.id, body);
   else if (action === 'set-plan') result = await superSetPlan(env, body);
   else if (action === 'reset-password') result = await superResetPassword(env, body);
@@ -593,29 +631,38 @@ async function updateSiteContent(env, orgId, b) {
   `).bind(orgId,clean(b.presentation,5000),clean(b.mission,3000),clean(b.vision,3000),clean(b.perspectives,3000),clean(b.contact_phone,80),clean(b.whatsapp,80),clean(b.contact_email,180),clean(b.address,500)).run();
   return { target_type:'site_content', target_id:orgId };
 }
-async function createMember(env, orgId, b) {
+async function createMember(env, orgId, b, actor) {
   const email=normalizeEmail(b.email), full=clean(b.full_name,140), password=String(b.password||'');
+  const userType=b.user_type==='subadmin'?'subadmin':'agent';
   if(!validEmail(email)||!full||password.length<8) throw bad('Nom, e-mail valide et mot de passe de 8 caractères minimum requis.');
   if(await env.FONDATIONCK_DB.prepare('SELECT id FROM users WHERE email=? COLLATE NOCASE').bind(email).first()) throw conflict('E-mail déjà utilisé.');
-  const id=crypto.randomUUID(), start=isoNow(), expiry=addDays(start,10), access=JSON.stringify(normalizeAccess(b.access));
+  const id=crypto.randomUUID(), start=isoNow(), expiry=addDays(start,10);
+  const role=userType==='subadmin'?'admin':'member';
+  const accessObj=userType==='subadmin'
+    ? {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:'subadmin'}
+    : {...normalizeAccess(b.access),account_type:'agent'};
+  const access=JSON.stringify(accessObj);
   await env.FONDATIONCK_DB.batch([
-    env.FONDATIONCK_DB.prepare(`INSERT INTO users (id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json) VALUES (?,?,?,?,?,'member','active','free',?,?,1,?)`).bind(id,orgId,email,full,clean(b.phone,40),start,expiry,access),
+    env.FONDATIONCK_DB.prepare(`INSERT INTO users (id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json) VALUES (?,?,?,?,?,?, 'active','free',?,?,1,?)`).bind(id,orgId,email,full,clean(b.phone,40),role,start,expiry,access),
     env.FONDATIONCK_DB.prepare('INSERT INTO credentials (user_id,password_hash) VALUES (?,?)').bind(id,await hashPassword(password))
   ]);
-  return { target_type:'user', target_id:id, message:'Utilisateur créé avec un plan Free de 10 jours.' };
+  return { target_type:'user', target_id:id, audit:{user_type:userType,created_by:actor?.id||''}, message:userType==='subadmin'?'Sous-administrateur créé avec accès complet.':'Agent créé avec les autorisations sélectionnées.' };
 }
+
 async function updateMemberAccess(env, orgId, b) {
   const id=clean(b.id,80); const target=await env.FONDATIONCK_DB.prepare(`SELECT role FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
   if(!target||target.role!=='member') throw bad('Seuls les accès des utilisateurs membres peuvent être modifiés ici.');
-  const r=await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?').bind(JSON.stringify(normalizeAccess(b.access)),id,orgId).run(); ensureChanged(r);
+  const r=await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?').bind(JSON.stringify({...normalizeAccess(b.access),account_type:'agent'}),id,orgId).run(); ensureChanged(r);
   return { target_type:'user', target_id:id };
 }
 async function resetMemberPassword(env, orgId, b) {
   const id=clean(b.id,80), password=String(b.password||''); if(password.length<8) throw bad('Mot de passe temporaire de 8 caractères minimum requis.');
-  const target=await env.FONDATIONCK_DB.prepare(`SELECT id,role FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first(); if(!target||target.role!=='member') throw bad('Utilisateur membre introuvable.');
+  const target=await env.FONDATIONCK_DB.prepare(`SELECT id,role FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
+  if(!target||target.role!=='member') throw bad('Seul le mot de passe d’un Agent peut être réinitialisé par un Administrateur.');
   await setPassword(env,id,password,true);
-  return { target_type:'user', target_id:id, message:'Mot de passe réinitialisé. Toutes les anciennes sessions ont été invalidées.' };
+  return { target_type:'user', target_id:id, message:'Mot de passe de l’Agent réinitialisé. Toutes les anciennes sessions ont été invalidées.' };
 }
+
 async function resolveMemberReset(env, orgId, b, actorId) {
   const requestId=clean(b.request_id,80), password=String(b.password||''); if(password.length<8) throw bad('Mot de passe temporaire de 8 caractères minimum requis.');
   const req=await env.FONDATIONCK_DB.prepare(`SELECT * FROM password_reset_requests WHERE id=? AND organization_id=? AND status='pending' AND target_role='member'`).bind(requestId,orgId).first(); if(!req) throw bad('Demande introuvable.');
@@ -631,16 +678,6 @@ async function changeOwnPassword(env, user, b) {
   return { target_type:'user', target_id:user.id, message:'Mot de passe modifié. Reconnectez-vous avec le nouveau mot de passe.' };
 }
 
-async function superCreateAdmin(env,b){
-  const email=normalizeEmail(b.email), full=clean(b.full_name,140), password=String(b.password||''); if(!validEmail(email)||!full||password.length<8) throw bad('Nom, e-mail et mot de passe de 8 caractères minimum requis.');
-  if(await env.FONDATIONCK_DB.prepare('SELECT id FROM users WHERE email=? COLLATE NOCASE').bind(email).first()) throw conflict('E-mail déjà utilisé.');
-  const id=crypto.randomUUID(),start=isoNow(),expiry=addDays(start,10),access=JSON.stringify(normalizeAccess({home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true}));
-  await env.FONDATIONCK_DB.batch([
-    env.FONDATIONCK_DB.prepare(`INSERT INTO users (id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json) VALUES (?,?,?,?,?,'admin','active','free',?,?,1,?)`).bind(id,DEFAULT_ORG_ID,email,full,clean(b.phone,40),start,expiry,access),
-    env.FONDATIONCK_DB.prepare('INSERT INTO credentials (user_id,password_hash) VALUES (?,?)').bind(id,await hashPassword(password))
-  ]);
-  return { organization_id:DEFAULT_ORG_ID,target_type:'user',target_id:id,message:'Administrateur créé.' };
-}
 async function superSetStatus(env,selfId,b){
   const id=clean(b.id,80), status=b.status==='active'?'active':'disabled'; if(!id||id===selfId) throw bad('Opération interdite sur votre propre compte.');
   const target=await env.FONDATIONCK_DB.prepare('SELECT organization_id,role FROM users WHERE id=?').bind(id).first(); if(!target) throw bad('Compte introuvable.');
@@ -680,6 +717,26 @@ async function superUpdateAccess(env,b){
   return { organization_id:target.organization_id,target_type:'user',target_id:id };
 }
 
+async function verifyAdminApproval(env, agentUser, password, request) {
+  const pwd=String(password||'');
+  if(!pwd) return {ok:false,status:400,error:'Mot de passe Administrateur requis pour modifier ou supprimer.'};
+  const key=`agent-approval:${agentUser.id}:${await sha256Hex(getIp(request))}`;
+  if(await isLoginBlocked(env,key)) return {ok:false,status:429,error:'Trop de tentatives d’autorisation. Réessayez dans 15 minutes.'};
+  const admins=await env.FONDATIONCK_DB.prepare(`
+    SELECT u.id,c.password_hash FROM users u JOIN credentials c ON c.user_id=u.id
+    WHERE u.organization_id=? AND u.role='admin' AND u.status='active'
+    ORDER BY u.created_at ASC LIMIT 20
+  `).bind(agentUser.organization_id).all();
+  for(const admin of (admins.results||[])) {
+    if(admin.password_hash && await verifyPassword(pwd,admin.password_hash)) {
+      await env.FONDATIONCK_KV.delete(key);
+      return {ok:true,admin_id:admin.id};
+    }
+  }
+  await bumpLogin(env,key);
+  return {ok:false,status:403,error:'Mot de passe Administrateur incorrect.'};
+}
+
 async function validSector(env,orgId,raw){
   const id=clean(raw,80); if(!id) return null;
   const row=await env.FONDATIONCK_DB.prepare('SELECT id FROM sectors WHERE id=? AND organization_id=?').bind(id,orgId).first(); if(!row) throw bad('Secteur invalide.'); return id;
@@ -701,8 +758,13 @@ function sanitizeUser(u){
 function planInfo(u){ return { name:u.plan,started_at:u.plan_started_at,expires_at:u.plan_expires_at,active:isSubscriptionActive(u),days_remaining:daysRemaining(u.plan_expires_at) }; }
 function isSubscriptionActive(u){ if(u.role==='superadmin') return true; return new Date(u.plan_expires_at).getTime() > Date.now(); }
 function daysRemaining(exp){ return Math.max(0,Math.ceil((new Date(exp).getTime()-Date.now())/86400000)); }
-function parseAccess(raw,role){ if(role==='superadmin'||role==='admin') return {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true}; try{return normalizeAccess(JSON.parse(raw||'{}'));}catch{return normalizeAccess({});} }
-function normalizeAccess(a){ return { home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,girls:a?.girls!==false,boys:a?.boys!==false,settings:true }; }
+function parseAccess(raw,role){
+  let a={}; try{a=JSON.parse(raw||'{}')||{};}catch{}
+  if(role==='superadmin') return {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:'superadmin'};
+  if(role==='admin') return {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:a.account_type==='subadmin'?'subadmin':'admin'};
+  return normalizeAccess(a);
+}
+function normalizeAccess(a){ return { home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,girls:a?.girls!==false,boys:a?.boys!==false,settings:true,can_add:a?.can_add!==false,can_print:a?.can_print!==false,account_type:'agent' }; }
 
 async function hashPassword(password){
   const salt=crypto.getRandomValues(new Uint8Array(16));

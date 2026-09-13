@@ -1,15 +1,22 @@
 (() => {
-  const state = { data: null, csrf: '', user: null, loadPromise: null };
+  const state = { data: null, csrf: '', user: null, loadPromise: null, scope: '' };
   const page = document.body.dataset.page || 'home';
   const authRequired = document.body.dataset.auth === 'required';
+  const FOUNDATION_PHONE = '0757577542 / 0545202646';
+  const FOUNDATION_EMAIL = 'oukami011@gmail.com';
 
   function esc(v='') { return String(v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
   function fmtDate(v) { if (!v) return '—'; const d = new Date(v); return Number.isNaN(d.getTime()) ? esc(v) : d.toLocaleDateString('fr-FR'); }
   function money(v) { return new Intl.NumberFormat('fr-FR').format(Number(v || 0)) + ' F'; }
+  function roleLabel(u={}) {
+    if (u.role === 'superadmin') return 'Super Admin';
+    if (u.role === 'admin') return u.access?.account_type === 'subadmin' ? 'Sous-administrateur' : 'Administrateur';
+    return 'Agent';
+  }
   function toast(message, type='ok') {
     let stack = document.querySelector('.toast-stack');
     if (!stack) { stack = document.createElement('div'); stack.className = 'toast-stack'; document.body.appendChild(stack); }
-    const el = document.createElement('div'); el.className = 'toast'; el.textContent = message; stack.appendChild(el);
+    const el = document.createElement('div'); el.className = `toast ${type==='error'?'toast-error':''}`; el.textContent = message; stack.appendChild(el);
     setTimeout(() => el.remove(), 4200);
   }
   function modal({title, html, large=false, onReady}={}) {
@@ -31,11 +38,21 @@
     if (!res.ok) { const err = new Error(data.error || `Erreur ${res.status}`); err.status=res.status; err.data=data; throw err; }
     return data;
   }
-  async function loadData(force=false) {
-    if (state.loadPromise && !force) return state.loadPromise;
+  function scopeForPage() {
+    if (page === 'sectors') return 'sectors';
+    if (page === 'responsibles') return 'responsibles';
+    if (page === 'girls') return 'girls';
+    if (page === 'boys') return 'boys';
+    if (page === 'settings') return 'settings';
+    return 'session';
+  }
+  async function loadData(force=false, scopeOverride='') {
+    const scope = scopeOverride || scopeForPage();
+    if (state.loadPromise && !force && state.scope === scope) return state.loadPromise;
+    state.scope = scope;
     state.loadPromise = (async () => {
       try {
-        const data = await api('/api/load');
+        const data = await api(`/api/load?scope=${encodeURIComponent(scope)}`);
         state.data = data; state.user = data.user; state.csrf = data.csrf_token || ''; renderHeader(); handleFreePlan(data); return data;
       } catch (e) {
         if (e.status === 401) { state.data=null; state.user=null; state.csrf=''; renderHeader(); if (authRequired) location.href='/connexion.html?next='+encodeURIComponent(location.pathname+location.search); return null; }
@@ -78,13 +95,13 @@
       wrap.querySelector('#quickLogin').addEventListener('submit', async e => {
         e.preventDefault(); const f=new FormData(e.currentTarget); const btn=e.currentTarget.querySelector('button[type=submit]'); btn.disabled=true;
         try { const r=await api('/api/login',{method:'POST',body:JSON.stringify({email:f.get('email'),password:f.get('password')})}); sessionStorage.setItem('fckJustLoggedIn','1'); close(); location.href = r.user.role==='superadmin' ? '/superadmin.html' : '/index.html'; }
-        catch(err){ toast(err.message); btn.disabled=false; }
+        catch(err){ toast(err.message,'error'); btn.disabled=false; }
       });
     }});
   }
   function showForgotModal() {
-    modal({title:'Demande de réinitialisation',html:`<div class="alert alert-info">Un <strong>Administrateur</strong> est réinitialisé par le <strong>Super Admin</strong>. Un <strong>utilisateur</strong> est réinitialisé par son <strong>Administrateur</strong>.</div><form id="forgotForm" class="form-grid"><div class="field full"><label>Adresse e-mail du compte</label><input class="input" type="email" name="email" required></div><div class="field full"><button class="btn btn-primary" type="submit">Envoyer la demande</button></div></form>`,onReady:(wrap,close)=>{
-      wrap.querySelector('#forgotForm').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/password-reset-request',{method:'POST',body:JSON.stringify({email:f.get('email')})});toast(r.message);close();}catch(err){toast(err.message);}});
+    modal({title:'Demande de réinitialisation',html:`<div class="alert alert-info">Un <strong>Administrateur ou Sous-administrateur</strong> est réinitialisé par le <strong>Super Admin</strong>. Un <strong>Agent</strong> est réinitialisé par un <strong>Administrateur</strong>.</div><form id="forgotForm" class="form-grid"><div class="field full"><label>Adresse e-mail du compte</label><input class="input" type="email" name="email" required></div><div class="field full"><button class="btn btn-primary" type="submit">Envoyer la demande</button></div></form>`,onReady:(wrap,close)=>{
+      wrap.querySelector('#forgotForm').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/password-reset-request',{method:'POST',body:JSON.stringify({email:f.get('email')})});toast(r.message);close();}catch(err){toast(err.message,'error');}});
     }});
   }
   function showFreePlanPopup() {
@@ -99,8 +116,8 @@
     if(!data?.user||data.user.role==='superadmin'||data.user.plan!=='free'||!data.subscription_active)return;
     const justLogged=sessionStorage.getItem('fckJustLoggedIn')==='1';
     const last=Number(localStorage.getItem('fckFreeLastPrompt')||0);
-    if(justLogged){sessionStorage.removeItem('fckJustLoggedIn');setTimeout(showFreePlanPopup,400)}
-    else if(!last || Date.now()-last>=15*60*1000){setTimeout(showFreePlanPopup,500)}
+    if(justLogged){sessionStorage.removeItem('fckJustLoggedIn');setTimeout(showFreePlanPopup,250)}
+    else if(!last || Date.now()-last>=15*60*1000){setTimeout(showFreePlanPopup,350)}
     if(!freeIntervalStarted){freeIntervalStarted=true;setInterval(()=>{const t=Number(localStorage.getItem('fckFreeLastPrompt')||0);if(!t||Date.now()-t>=15*60*1000)showFreePlanPopup()},60*1000)}
   }
   function guardPage(data, key){ if(!data)return false; if(data.user.role==='superadmin'||data.user.role==='admin')return true; if(!data.access?.[key]){location.href='/index.html';return false;} return true; }
@@ -108,9 +125,16 @@
     if(!data||data.user.role==='superadmin'||data.subscription_active)return false;
     const el=typeof target==='string'?document.querySelector(target):target;if(el)el.innerHTML=`<div class="glass lock-screen"><h2>Abonnement expiré</h2><p>Votre période d’accès est terminée. Ouvrez Paramètre pour choisir une formule.</p><a class="btn btn-orange" href="/parametres.html#abonnement">Voir les formules</a></div>`;return true;
   }
-  async function save(action, payload={}){ const r=await api('/api/save',{method:'POST',body:JSON.stringify({action,...payload})}); return r; }
-  function footer(){ const el=document.getElementById('siteFooter'); if(!el)return; el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><small>Plateforme sécurisée Cloudflare Pages · D1 · KV</small></div></div>`; }
+  async function save(action, payload={}){ return api('/api/save',{method:'POST',body:JSON.stringify({action,...payload})}); }
+  function footer(){
+    const el=document.getElementById('siteFooter'); if(!el)return;
+    el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div></div></div>`;
+  }
 
-  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, showLoginModal, showForgotModal, guardPage, subscriptionGate };
-  document.addEventListener('DOMContentLoaded', async () => { renderHeader(); footer(); try { await loadData(); } catch (e) { console.error(e); toast(e.message || 'Erreur de chargement'); } document.dispatchEvent(new CustomEvent('fck:ready',{detail:state.data})); });
+  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate };
+  document.addEventListener('DOMContentLoaded', async () => {
+    renderHeader(); footer();
+    try { await loadData(); } catch (e) { console.error(e); if(authRequired) toast(e.message || 'Erreur de chargement','error'); }
+    document.dispatchEvent(new CustomEvent('fck:ready',{detail:state.data}));
+  });
 })();

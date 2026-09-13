@@ -1,6 +1,24 @@
-# LA FONDATION CK — V2 corrigée complète
+# LA FONDATION CK — V2.2 corrigée complète
 
 Projet complet pour **GitHub + Cloudflare Pages + D1 + KV**.
+
+## Mise à jour V2.2 — rapidité, footer et rôles
+
+Cette version ajoute :
+- chargement ciblé par page (`/api/load?scope=...`) pour éviter de charger toutes les listes à chaque navigation ;
+- bootstrap Super Admin mis en cache dans KV après initialisation réussie afin d'éviter des requêtes D1 répétées ;
+- chargements D1 parallélisés dans Paramètre et sur l'accueil public ;
+- cache navigateur court pour JS et cache 24 h pour les images/assets ;
+- footer maintenu en bas des pages, sans le texte technique Cloudflare ;
+- coordonnées Fondation : `0757577542 / 0545202646` et `oukami011@gmail.com` ;
+- création autonome des comptes **Administrateur** depuis « Créer un compte » ;
+- création par l'Administrateur de deux types de comptes : **Agent** ou **Sous-administrateur** ;
+- Agent : pages visibles paramétrables, ajout de lignes et impression selon autorisation ; modification/suppression uniquement avec mot de passe d'un Administrateur ; aucune publication de nouvelles ni gestion des utilisateurs ;
+- Sous-administrateur : accès complet comme un Administrateur ;
+- bouton **Support technique** dans Paramètre ouvrant WhatsApp vers MEGA SERVICES SARL U (`+225 07 77 04 17 90`).
+
+Aucune suppression des tables D1 existantes n'est requise pour passer de V2.1 à V2.2.
+
 
 ## Correctif principal V2 : Super Admin
 
@@ -21,8 +39,9 @@ Le Worker :
 
 - Public : Accueil, Contacts, Connexion, Créer un compte.
 - Administrateur : Accueil, Secteur, Responsables, Jeunes filles, Jeunes garçons, Paramètre.
-- Gestion des utilisateurs et des accès par page.
-- Espace Super Admin : comptes, activation/désactivation, suppression autorisée, assistance mot de passe, plans, accès, journal d'audit.
+- Création autonome des comptes Administrateur depuis le site.
+- Gestion des Agents (pages visibles, ajout, impression) et création de Sous-administrateurs à accès complet.
+- Espace Super Admin : comptes, activation/désactivation, suppression autorisée, assistance mot de passe, plans, accès, journal d'audit. Le Super Admin ne crée plus les Administrateurs.
 - Nouvelles du jour avec image et page détaillée.
 - Plans : Free 10 jours ; Standard 30 jours / 5 100 F ; Business 365 jours / 45 600 F.
 - Popup Free à la connexion et toutes les 15 minutes.

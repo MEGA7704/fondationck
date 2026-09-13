@@ -1,0 +1,16 @@
+LA FONDATION CK — CORRECTIONS V2.2
+
+- Navigation accélérée : chargement uniquement des données nécessaires à la page ouverte.
+- Initialisation Super Admin mise en cache après succès.
+- Requêtes D1 parallélisées.
+- Footer maintenu en bas du site.
+- Suppression du texte : Plateforme sécurisée Cloudflare Pages · D1 · KV.
+- Footer : 0757577542 / 0545202646 · oukami011@gmail.com.
+- Inscription publique = création d'un compte Administrateur Free 10 jours.
+- Super Admin ne crée plus les Administrateurs depuis son interface.
+- Administrateur : création d'Agent ou de Sous-administrateur.
+- Agent : consultation des pages autorisées ; ajout et impression selon droits ; modification/suppression avec mot de passe Administrateur ; aucune gestion des utilisateurs ni des nouvelles.
+- Sous-administrateur : accès complet comme Administrateur.
+- Paramètre Administrateur : bouton Support technique WhatsApp MEGA SERVICES SARL U +225 07 77 04 17 90.
+
+Cloudflare : aucune modification des bindings/secrets existants n'est nécessaire.

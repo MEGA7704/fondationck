@@ -1,4 +1,4 @@
-# Déploiement exact — LA FONDATION CK V2
+# Déploiement exact — LA FONDATION CK V2.2
 
 ## 1. GitHub
 
@@ -110,3 +110,12 @@ et utilisez exactement les valeurs des secrets `SUPERADMIN_EMAIL` et `SUPERADMIN
 5. Se connecter avec les valeurs secrètes `SUPERADMIN_EMAIL` et `SUPERADMIN_PASSWORD`.
 
 Aucune suppression manuelle de D1 n'est nécessaire.
+
+
+## Après mise à jour V2.2
+
+1. Remplacez le contenu du dépôt GitHub par celui de ce ZIP et laissez Cloudflare redéployer `main`.
+2. Ne supprimez pas les tables D1 ni les clés `bootstrap:superadmin:status` et `bootstrap:superadmin:v4`.
+3. Aucune nouvelle liaison Cloudflare n'est nécessaire.
+4. La migration `0003_contact_fondation.sql` est facultative pour une base existante : le code applique déjà les coordonnées comme valeurs de secours. Pour les enregistrer dans D1, lancez `npm run db:migrate:remote`.
+5. Videz le cache du navigateur avec `Ctrl + F5` si une ancienne version du JavaScript reste affichée pendant quelques minutes.
