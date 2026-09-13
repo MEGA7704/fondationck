@@ -1,3 +1,7 @@
+# LA FONDATION CK — V2.13
+
+Cette version ajoute le décompte des alliés des jeunes filles dans la page Rapport et la mention ©2026 Méga Services SARL U - Tous droits réservés dans le footer.
+
 ## V2.12 — Carrousel Actualités dans le hero et arrière-plan mobile corrigé
 
 Voir `CORRECTIONS_V2_12.txt`.
@@ -114,3 +118,24 @@ SUPERADMIN_PASSWORD
 - journal d’audit D1 ;
 - mots de passe exclusivement vérifiés côté serveur ;
 - PBKDF2 limité à 100000 itérations pour compatibilité Cloudflare.
+
+## V2.16 — Suppression d'un secteur
+La suppression d'un secteur est maintenant une suppression en cascade métier : responsables, jeunes filles, jeunes garçons, associations liées et membres de ces associations sont supprimés en même temps. Un avertissement de confirmation est affiché avant l'opération.
+
+
+## V2.16 — Responsables
+Le formulaire Responsables ne contient plus Village. La fonction est limitée aux trois rôles officiels, avec contrôle d’unicité par localité et ajout du lieu de vote.
+
+
+## V2.17 — Jeunes filles : Secteur/Localité dépendants et contacts des alliés
+Le formulaire Jeunes filles sépare Secteur et Localité. La liste Localité dépend du secteur sélectionné. Deux champs Contact ont été ajoutés pour les personnes alliées 1 et 2, avec migration D1 automatique et sans perte de données.
+
+
+## V2.18 — Jeunes garçons : Secteur / Localité dépendants
+
+- Dans **Ajouter / Modifier un jeune garçon**, les champs **Secteur** et **Localité** sont séparés.
+- **Secteur** est une liste déroulante alimentée par les secteurs enregistrés.
+- **Localité** devient une liste déroulante dépendante : elle ne propose que les localités du secteur choisi.
+- La combinaison Secteur / Localité est contrôlée avant enregistrement.
+- Le serveur recalcule la localité depuis le secteur sélectionné afin d’éviter une association incohérente.
+- Aucune migration D1 n’est nécessaire pour cette version.

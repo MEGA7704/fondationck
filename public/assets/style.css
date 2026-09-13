@@ -462,3 +462,28 @@ body::after{display:none!important}
 }
 /* Préserver le comportement sticky du menu malgré la couche d'arrière-plan V2.12. */
 .site-header{position:sticky!important;top:0!important;z-index:50!important}
+
+
+/* V2.13 — décompte des alliés dans Rapport et mention légale discrète du footer */
+.footer-copyright{
+  flex:0 0 100%;
+  width:100%;
+  margin-top:2px;
+  text-align:center;
+  color:rgba(219,232,225,.68);
+  font-size:.60rem;
+  font-weight:500;
+  line-height:1.2;
+  letter-spacing:.01em;
+}
+@media(max-width:760px){
+  .footer-copyright{text-align:left;font-size:.58rem;margin-top:4px}
+}
+
+/* V2.15 — ajout multiple de secteurs/localités */
+.sector-entry-list{display:grid;gap:10px;margin:12px 0}
+.sector-entry-row{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:10px;align-items:end;padding:12px;border:1px solid rgba(10,65,52,.14);border-radius:14px;background:rgba(255,255,255,.48)}
+.sector-entry-row .field{min-width:0;margin:0}
+.sector-row-action{display:flex;align-items:flex-end;justify-content:center;padding-bottom:1px}
+.sector-add-line{display:flex;justify-content:flex-start;margin:8px 0 16px}
+@media(max-width:640px){.sector-entry-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;padding:9px}.sector-entry-row .field label{font-size:.72rem}.sector-entry-row .input{font-size:.82rem;padding:9px 8px}.sector-row-action .btn{padding:8px 9px}.sector-add-line .btn{width:100%}}

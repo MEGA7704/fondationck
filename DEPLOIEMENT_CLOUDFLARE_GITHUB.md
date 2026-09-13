@@ -65,3 +65,15 @@ Les fichiers de migration du projet vont de `0001_schema.sql` à `0007_sector_re
 5. Le Super Admin attribue le titre **Administrateur principal** à une seule personne.
 6. Le Super Admin active ensuite le plan de cet Administrateur principal.
 7. Tous les Visiteurs, Agents et Sous-administrateurs de la Fondation utilisent automatiquement ce même abonnement.
+
+
+## V2.16
+La colonne `responsibles.voting_place` est ajoutée automatiquement au premier appel API. Aucune suppression de D1/KV n'est nécessaire.
+
+
+### Mise à niveau V2.17
+Aucune action D1 manuelle n'est requise. Au premier appel API après déploiement, le Worker ajoute automatiquement `ally1_phone` et `ally2_phone` à la table `girls` si nécessaire. Ne supprimez ni D1 ni KV.
+
+
+### Mise à niveau V2.18
+Aucune migration D1 n’est requise. La V2.18 modifie le formulaire Jeunes garçons et renforce la cohérence Secteur / Localité côté serveur.

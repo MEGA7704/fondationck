@@ -14,7 +14,7 @@
   const responsibles=()=>data?.responsibles||[];
 
   function principalFor(sectorId){
-    return responsibles().filter(r=>r.sector_id===sectorId).sort((a,b)=>Number(b.is_primary||0)-Number(a.is_primary||0)||String(a.full_name||'').localeCompare(String(b.full_name||''),'fr'))[0]||null;
+    return responsibles().find(r=>r.sector_id===sectorId&&String(r.function_title||'').toLowerCase()==='responsable de secteur')||responsibles().filter(r=>r.sector_id===sectorId).sort((a,b)=>Number(b.is_primary||0)-Number(a.is_primary||0)||String(a.full_name||'').localeCompare(String(b.full_name||''),'fr'))[0]||null;
   }
   function roleResponsibleFor(sectorId, role){
     const wanted=String(role||'').toLowerCase();
@@ -28,7 +28,7 @@
     if(!FCK.guardPage(data,'sectors'))return;
     if(FCK.subscriptionGate(data,'#protectedMain'))return;
     const action=document.getElementById('pageAction');
-    action.innerHTML=`<div class="page-actions">${canPrint()?'<button id="printSectors" class="btn btn-outline">🖨 Imprimer PDF</button>':''}${canAdd()?'<button id="addSector" class="btn btn-orange">＋ Ajouter secteur et responsables</button>':''}</div>`;
+    action.innerHTML=`<div class="page-actions">${canPrint()?'<button id="printSectors" class="btn btn-outline">🖨 Imprimer PDF</button>':''}${canAdd()?'<button id="addSector" class="btn btn-orange">＋ Ajouter secteur</button>':''}</div>`;
     action.querySelector('#addSector')?.addEventListener('click',()=>openSectorForm());
     action.querySelector('#printSectors')?.addEventListener('click',printSectorList);
     const search=document.getElementById('tableSearch');
@@ -62,32 +62,68 @@
 
   function printSectorList(){
     const t=document.getElementById('printableSectorTable'); if(!t)return;
-    FCK.printProfessional({title:'Liste des secteurs',subtitle:`${filtered.length} secteur(s) avec responsables et effectifs`,source:t,orientation:'landscape'});
+    FCK.printProfessional({title:'Liste des secteurs',subtitle:`${filtered.length} secteur(s) enregistré(s)`,source:t,orientation:'landscape'});
   }
 
   function openSectorForm(row={}){
     const editing=!!row.id;
-    const r=editing?principalFor(row.id):null;
-    const rg=editing?roleResponsibleFor(row.id,'Responsable des jeunes filles'):null;
-    const rb=editing?roleResponsibleFor(row.id,'Responsable des jeunes garçons'):null;
     const approval=editing&&isAgent()?`<div class="field full admin-approval"><label>Mot de passe d’un Administrateur *</label><input class="input" type="password" name="admin_password" required autocomplete="off"><span class="hint">Validation obligatoire pour toute modification par un Agent.</span></div>`:'';
-    FCK.modal({title:editing?'Modifier le secteur et ses responsables':'Ajouter un secteur et ses responsables',large:true,html:`<form id="sectorForm" class="form-grid">
-      <div class="field"><label>Nom du secteur *</label><input class="input" name="name" value="${FCK.esc(row.name||'')}" required></div>
-      <div class="field"><label>Localité *</label><input class="input" name="locality" value="${FCK.esc(row.locality||'')}" required></div>
-      <div class="field full section-separator"><strong>Responsable du secteur</strong></div>
-      <div class="field"><label>Nom complet du responsable *</label><input class="input" name="responsible_name" value="${FCK.esc(r?.full_name||row.responsible_name||'')}" required></div>
-      <div class="field"><label>Fonction</label><input class="input" name="responsible_function" value="${FCK.esc(r?.function_title||'Responsable de secteur')}"></div>
-      <div class="field"><label>Contact</label><input class="input" name="responsible_phone" value="${FCK.esc(r?.phone||row.responsible_phone||'')}"></div>
-      <div class="field"><label>E-mail</label><input class="input" type="email" name="responsible_email" value="${FCK.esc(r?.email||'')}"></div>
-      <div class="field full section-separator"><strong>Responsables jeunesse</strong></div>
-      <div class="field"><label>Responsable des jeunes filles *</label><input class="input" name="girls_responsible_name" value="${FCK.esc(rg?.full_name||row.girls_responsible_name||'')}" required></div>
-      <div class="field"><label>Responsable des jeunes garçons *</label><input class="input" name="boys_responsible_name" value="${FCK.esc(rb?.full_name||row.boys_responsible_name||'')}" required></div>
-      ${approval}
-      <div class="field full"><div class="modal-actions"><button type="submit" class="btn btn-primary">Enregistrer</button></div></div>
+
+    if(editing){
+      FCK.modal({title:'Modifier le secteur',html:`<form id="sectorForm" class="form-grid">
+        <div class="field"><label>Nom du secteur *</label><input class="input" name="name" value="${FCK.esc(row.name||'')}" required></div>
+        <div class="field"><label>Localité *</label><input class="input" name="locality" value="${FCK.esc(row.locality||'')}" required></div>
+        ${approval}
+        <div class="field full"><div class="modal-actions"><button type="submit" class="btn btn-primary">Enregistrer</button></div></div>
+      </form>`,onReady:(wrap,close)=>{
+        wrap.querySelector('#sectorForm').addEventListener('submit',async e=>{
+          e.preventDefault();const obj=Object.fromEntries(new FormData(e.currentTarget));obj.id=row.id;
+          try{await FCK.save('update-sector',obj);FCK.toast('Secteur modifié.');close();data=await FCK.loadData(true);render();}catch(err){FCK.toast(err.message,'error')}
+        });
+      }});
+      return;
+    }
+
+    const rowHtml=(idx=0)=>`<div class="sector-entry-row" data-sector-row>
+      <div class="field"><label>Secteur *</label><input class="input" name="sector_name_${idx}" data-sector-name required placeholder="Nom du secteur"></div>
+      <div class="field"><label>Localité *</label><input class="input" name="sector_locality_${idx}" data-sector-locality required placeholder="Localité"></div>
+      <div class="sector-row-action"><button type="button" class="btn btn-sm btn-danger" data-remove-sector-row title="Supprimer cette ligne" aria-label="Supprimer cette ligne">✕</button></div>
+    </div>`;
+
+    FCK.modal({title:'Ajouter des secteurs',large:true,html:`<form id="sectorBulkForm">
+      <div class="alert alert-info">Ajoutez un ou plusieurs secteurs avec leur localité. Les responsables se renseignent séparément dans la page <strong>Responsables</strong>.</div>
+      <div id="sectorRows" class="sector-entry-list">${rowHtml(0)}</div>
+      <div class="sector-add-line"><button type="button" id="addSectorRow" class="btn btn-outline">＋ Ajouter une ligne</button></div>
+      <div class="modal-actions"><button type="submit" class="btn btn-primary">Enregistrer les secteurs</button></div>
     </form>`,onReady:(wrap,close)=>{
-      wrap.querySelector('#sectorForm').addEventListener('submit',async e=>{
-        e.preventDefault();const obj=Object.fromEntries(new FormData(e.currentTarget));if(editing)obj.id=row.id;
-        try{await FCK.save(editing?'update-sector-with-responsible':'add-sector-with-responsible',obj);FCK.toast('Secteur et responsables enregistrés.');close();data=await FCK.loadData(true);render();}catch(err){FCK.toast(err.message,'error')}
+      const rows=wrap.querySelector('#sectorRows');
+      const refreshRemoveButtons=()=>{
+        const items=[...rows.querySelectorAll('[data-sector-row]')];
+        items.forEach((item,i)=>{
+          const btn=item.querySelector('[data-remove-sector-row]');
+          if(btn){btn.style.visibility=items.length>1?'visible':'hidden';btn.onclick=()=>{if(items.length>1){item.remove();refreshRemoveButtons()}};}
+        });
+      };
+      wrap.querySelector('#addSectorRow').addEventListener('click',()=>{
+        const idx=rows.querySelectorAll('[data-sector-row]').length;
+        rows.insertAdjacentHTML('beforeend',rowHtml(idx));
+        refreshRemoveButtons();
+        rows.lastElementChild?.querySelector('[data-sector-name]')?.focus();
+      });
+      refreshRemoveButtons();
+      wrap.querySelector('#sectorBulkForm').addEventListener('submit',async e=>{
+        e.preventDefault();
+        const entries=[...rows.querySelectorAll('[data-sector-row]')].map(item=>({
+          name:clean(item.querySelector('[data-sector-name]')?.value),
+          locality:clean(item.querySelector('[data-sector-locality]')?.value)
+        })).filter(x=>x.name||x.locality);
+        if(!entries.length){FCK.toast('Ajoutez au moins un secteur.','error');return;}
+        if(entries.some(x=>!x.name||!x.locality)){FCK.toast('Chaque ligne doit contenir le secteur et la localité.','error');return;}
+        try{
+          const out=await FCK.save('add-sectors-bulk',{rows:entries});
+          FCK.toast(out?.message||`${entries.length} secteur(s) enregistré(s).`);
+          close();data=await FCK.loadData(true);render();
+        }catch(err){FCK.toast(err.message,'error')}
       });
     }});
   }
@@ -135,10 +171,10 @@
 
   async function removeSector(id){
     if(isAdmin()){
-      if(!confirm('Supprimer ce secteur ? Les personnes rattachées resteront enregistrées mais ne seront plus rattachées à ce secteur.'))return;
-      try{await FCK.save('delete-sector',{id});FCK.toast('Secteur supprimé.');data=await FCK.loadData(true);render()}catch(err){FCK.toast(err.message,'error')}return;
+      if(!confirm('Supprimer ce secteur ? ATTENTION : cette action supprimera aussi toutes les lignes liées à ce secteur dans Responsables, Jeunes filles, Jeunes garçons, Associations et les membres des associations concernées. Cette suppression est définitive.'))return;
+      try{const out=await FCK.save('delete-sector',{id});FCK.toast(out?.message||'Secteur et données liées supprimés.');data=await FCK.loadData(true);render()}catch(err){FCK.toast(err.message,'error')}return;
     }
-    approvalDelete('delete-sector',id,'secteur',async()=>{data=await FCK.loadData(true);render()});
+    approvalDelete('delete-sector',id,'secteur et toutes les données qui lui sont liées',async()=>{data=await FCK.loadData(true);render()});
   }
   async function removeYoung(type,id,after){
     const action=type==='girls'?'delete-girl':'delete-boy';

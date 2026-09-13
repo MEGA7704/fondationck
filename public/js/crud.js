@@ -2,7 +2,7 @@
   const key=document.body.dataset.page;
   const configs={
     sectors:{dataKey:'sectors',title:'secteur',plural:'Liste des secteurs',addLabel:'Ajouter un secteur',access:'sectors',columns:[['name','Secteur'],['locality','Localité']]},
-    responsibles:{dataKey:'responsibles',title:'responsable',plural:'Liste des responsables de secteur',addLabel:'Ajouter un responsable',access:'responsibles',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['function_title','Fonction'],['phone','Téléphone'],['email','E-mail'],['locality','Localité'],['village','Village']]},
+    responsibles:{dataKey:'responsibles',title:'responsable',plural:'Liste des responsables de secteur',addLabel:'Ajouter un responsable',access:'responsibles',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['locality','Localité'],['function_title','Fonction'],['phone','Téléphone'],['voting_place','Lieu de vote'],['email','E-mail']]},
     girls:{dataKey:'girls',title:'jeune fille',plural:'Liste des jeunes filles',addLabel:'Ajouter une jeune fille',access:'girls',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['responsible_name','Responsable'],['phone','Contact'],['gender','Sexe'],['polling_station','Bureau de vote'],['voting_place','Lieu de vote'],['ally1_summary','Allié 1'],['ally2_summary','Allié 2']]},
     boys:{dataKey:'boys',title:'jeune garçon',plural:'Liste des jeunes garçons',addLabel:'Ajouter un jeune garçon',access:'boys',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['responsible_name','Responsable'],['phone','Contact'],['polling_station','Bureau de vote'],['voting_place','Lieu de vote']]}
   };
@@ -30,7 +30,7 @@
     if(k==='birth_date')return FCK.fmtDate(r[k]);
     if(k==='ally1_summary'||k==='ally2_summary'){
       const n=k==='ally1_summary'?1:2; const name=clean(r[`ally${n}_name`]); if(!name)return '—';
-      const bits=[name,clean(r[`ally${n}_gender`]),clean(r[`ally${n}_polling_station`])?`Bureau: ${clean(r[`ally${n}_polling_station`])}`:'',clean(r[`ally${n}_voting_place`])?`Lieu: ${clean(r[`ally${n}_voting_place`])}`:''].filter(Boolean);
+      const bits=[name,clean(r[`ally${n}_phone`])?`Contact: ${clean(r[`ally${n}_phone`])}`:'',clean(r[`ally${n}_gender`]),clean(r[`ally${n}_polling_station`])?`Bureau: ${clean(r[`ally${n}_polling_station`])}`:'',clean(r[`ally${n}_voting_place`])?`Lieu: ${clean(r[`ally${n}_voting_place`])}`:''].filter(Boolean);
       return bits.map(FCK.esc).join('<br>');
     }
     return FCK.esc(r[k]||'—');
@@ -58,55 +58,112 @@
     const list=uniq(sectorRows().filter(s=>clean(s.name)===clean(sectorName)).map(s=>s.locality));
     return `<option value="">— Sélectionner une localité —</option>`+list.map(v=>`<option value="${FCK.esc(v)}" ${v===selected?'selected':''}>${FCK.esc(v)}</option>`).join('');
   }
-  function villageOptions(sectorName,locality,selected=''){
-    const list=uniq(sectorRows().filter(s=>clean(s.name)===clean(sectorName)&&clean(s.locality)===clean(locality)).map(s=>s.village));
-    return `<option value="">— Sélectionner un village —</option>`+list.map(v=>`<option value="${FCK.esc(v)}" ${v===selected?'selected':''}>${FCK.esc(v)}</option>`).join('');
+  function matchingSector(sectorName,locality){
+    return sectorRows().find(s=>clean(s.name)===clean(sectorName)&&clean(s.locality)===clean(locality))||null;
   }
-  function matchingSector(sectorName,locality,village){
-    return sectorRows().find(s=>clean(s.name)===clean(sectorName)&&clean(s.locality)===clean(locality)&&clean(s.village)===clean(village))||null;
-  }
-  function bindResponsibleHierarchy(wrap,row={}){
-    const sectorSel=wrap.querySelector('#responsibleSectorName');
-    const localitySel=wrap.querySelector('#responsibleLocality');
-    const villageSel=wrap.querySelector('#responsibleVillage');
-    const idInput=wrap.querySelector('#responsibleSectorId');
-    if(!sectorSel||!localitySel||!villageSel||!idInput)return;
+  function bindGirlHierarchy(wrap,row={}){
+    const sectorSel=wrap.querySelector('#girlSectorName');
+    const localitySel=wrap.querySelector('#girlLocality');
+    const idInput=wrap.querySelector('#girlSectorId');
+    if(!sectorSel||!localitySel||!idInput)return;
     const linked=sectorById(row.sector_id);
     const initialSector=clean(linked?.name||row.sector_name||sectorSel.value);
     const initialLocality=clean(linked?.locality||row.locality||localitySel.value);
-    const initialVillage=clean(linked?.village||row.village||villageSel.value);
-
     function syncId(){
-      const match=matchingSector(sectorSel.value,localitySel.value,villageSel.value);
+      const match=matchingSector(sectorSel.value,localitySel.value);
       idInput.value=match?.id||'';
     }
-    function fillVillages(preferred=''){
-      if(!sectorSel.value||!localitySel.value){
-        villageSel.innerHTML='<option value="">— Choisir d’abord une localité —</option>';
-        villageSel.disabled=true; idInput.value=''; return;
-      }
-      villageSel.disabled=false;
-      villageSel.innerHTML=villageOptions(sectorSel.value,localitySel.value,preferred);
-      if(preferred && ![...villageSel.options].some(o=>o.value===preferred)) villageSel.value='';
-      syncId();
-    }
-    function fillLocalities(preferredLocality='',preferredVillage=''){
+    function fillLocalities(preferredLocality=''){
       if(!sectorSel.value){
         localitySel.innerHTML='<option value="">— Choisir d’abord un secteur —</option>';
         localitySel.disabled=true;
-        villageSel.innerHTML='<option value="">— Choisir d’abord une localité —</option>';
-        villageSel.disabled=true; idInput.value=''; return;
+        idInput.value='';
+        return;
       }
       localitySel.disabled=false;
       localitySel.innerHTML=localityOptions(sectorSel.value,preferredLocality);
       if(preferredLocality && ![...localitySel.options].some(o=>o.value===preferredLocality)) localitySel.value='';
-      fillVillages(preferredVillage);
+      syncId();
     }
     sectorSel.addEventListener('change',()=>fillLocalities());
-    localitySel.addEventListener('change',()=>fillVillages());
-    villageSel.addEventListener('change',syncId);
+    localitySel.addEventListener('change',syncId);
     sectorSel.value=initialSector;
-    fillLocalities(initialLocality,initialVillage);
+    fillLocalities(initialLocality);
+  }
+  function bindBoyHierarchy(wrap,row={}){
+    const sectorSel=wrap.querySelector('#boySectorName');
+    const localitySel=wrap.querySelector('#boyLocality');
+    const idInput=wrap.querySelector('#boySectorId');
+    if(!sectorSel||!localitySel||!idInput)return;
+    const linked=sectorById(row.sector_id);
+    const initialSector=clean(linked?.name||row.sector_name||sectorSel.value);
+    const initialLocality=clean(linked?.locality||row.locality||localitySel.value);
+    function syncId(){
+      const match=matchingSector(sectorSel.value,localitySel.value);
+      idInput.value=match?.id||'';
+    }
+    function fillLocalities(preferredLocality=''){
+      if(!sectorSel.value){
+        localitySel.innerHTML='<option value="">— Choisir d’abord un secteur —</option>';
+        localitySel.disabled=true;
+        idInput.value='';
+        return;
+      }
+      localitySel.disabled=false;
+      localitySel.innerHTML=localityOptions(sectorSel.value,preferredLocality);
+      if(preferredLocality && ![...localitySel.options].some(o=>o.value===preferredLocality)) localitySel.value='';
+      syncId();
+    }
+    sectorSel.addEventListener('change',()=>fillLocalities());
+    localitySel.addEventListener('change',syncId);
+    sectorSel.value=initialSector;
+    fillLocalities(initialLocality);
+  }
+  const RESPONSIBLE_ROLES=['Responsable de secteur','Responsable des jeunes filles','Responsable des jeunes garçons'];
+  function functionOptions(locality, selected='', currentId=''){
+    const loc=clean(locality).toLowerCase();
+    const used=new Set((data?.responsibles||[])
+      .filter(r=>r.id!==currentId&&clean(r.locality).toLowerCase()===loc)
+      .map(r=>clean(r.function_title).toLowerCase()));
+    return `<option value="">— Sélectionner une fonction —</option>`+RESPONSIBLE_ROLES.map(role=>{
+      const disabled=used.has(role.toLowerCase());
+      const isSelected=!disabled&&clean(selected)===role;
+      return `<option value="${FCK.esc(role)}" ${isSelected?'selected':''} ${disabled?'disabled':''}>${FCK.esc(role)}${disabled?' — déjà attribuée':''}</option>`;
+    }).join('');
+  }
+  function bindResponsibleHierarchy(wrap,row={}){
+    const sectorSel=wrap.querySelector('#responsibleSectorName');
+    const localitySel=wrap.querySelector('#responsibleLocality');
+    const functionSel=wrap.querySelector('#responsibleFunction');
+    const idInput=wrap.querySelector('#responsibleSectorId');
+    if(!sectorSel||!localitySel||!functionSel||!idInput)return;
+    const linked=sectorById(row.sector_id);
+    const initialSector=clean(linked?.name||row.sector_name||sectorSel.value);
+    const initialLocality=clean(linked?.locality||row.locality||localitySel.value);
+    const initialFunction=clean(row.function_title||'');
+
+    function syncId(){
+      const match=matchingSector(sectorSel.value,localitySel.value);
+      idInput.value=match?.id||'';
+      functionSel.innerHTML=functionOptions(localitySel.value,functionSel.value||initialFunction,row.id||'');
+    }
+    function fillLocalities(preferredLocality=''){
+      if(!sectorSel.value){
+        localitySel.innerHTML='<option value="">— Choisir d’abord un secteur —</option>';
+        localitySel.disabled=true; idInput.value='';
+        functionSel.innerHTML=functionOptions('',initialFunction,row.id||'');
+        return;
+      }
+      localitySel.disabled=false;
+      localitySel.innerHTML=localityOptions(sectorSel.value,preferredLocality);
+      if(preferredLocality && ![...localitySel.options].some(o=>o.value===preferredLocality)) localitySel.value='';
+      syncId();
+    }
+    sectorSel.addEventListener('change',()=>fillLocalities());
+    localitySel.addEventListener('change',()=>syncId());
+    sectorSel.value=initialSector;
+    fillLocalities(initialLocality);
+    functionSel.innerHTML=functionOptions(localitySel.value,initialFunction,row.id||'');
   }
   function openForm(row={}){
     const editing=!!row.id;let fields='';
@@ -115,27 +172,60 @@
       const linked=sectorById(row.sector_id);
       const selectedSector=clean(linked?.name||row.sector_name||'');
       const selectedLocality=clean(linked?.locality||row.locality||'');
-      const selectedVillage=clean(linked?.village||row.village||'');
-      fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur</label><select class="select" id="responsibleSectorName" name="sector_name">${sectorNameOptions(selectedSector)}</select><input type="hidden" id="responsibleSectorId" name="sector_id" value="${FCK.esc(row.sector_id||'')}"></div><div class="field"><label>Localité</label><select class="select" id="responsibleLocality" name="locality" ${selectedSector?'':'disabled'}>${selectedSector?localityOptions(selectedSector,selectedLocality):'<option value="">— Choisir d’abord un secteur —</option>'}</select></div><div class="field"><label>Village</label><select class="select" id="responsibleVillage" name="village" ${selectedSector&&selectedLocality?'':'disabled'}>${selectedSector&&selectedLocality?villageOptions(selectedSector,selectedLocality,selectedVillage):'<option value="">— Choisir d’abord une localité —</option>'}</select></div><div class="field"><label>Fonction</label><input class="input" name="function_title" value="${FCK.esc(row.function_title||'Responsable de secteur')}"></div><div class="field"><label>Téléphone</label><input class="input" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field full"><label>E-mail</label><input class="input" type="email" name="email" value="${FCK.esc(row.email||'')}"></div>`;
+      fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur *</label><select class="select" id="responsibleSectorName" name="sector_name" required>${sectorNameOptions(selectedSector)}</select><input type="hidden" id="responsibleSectorId" name="sector_id" value="${FCK.esc(row.sector_id||'')}"></div><div class="field"><label>Localité *</label><select class="select" id="responsibleLocality" name="locality" required ${selectedSector?'':'disabled'}>${selectedSector?localityOptions(selectedSector,selectedLocality):'<option value="">— Choisir d’abord un secteur —</option>'}</select></div><div class="field"><label>Fonction *</label><select class="select" id="responsibleFunction" name="function_title" required>${functionOptions(selectedLocality,row.function_title||'',row.id||'')}</select><span class="hint">Une seule personne par fonction est autorisée dans une même localité.</span></div><div class="field"><label>Téléphone</label><input class="input" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="voting_place" value="${FCK.esc(row.voting_place||'')}" placeholder="Lieu de vote"></div><div class="field full"><label>E-mail</label><input class="input" type="email" name="email" value="${FCK.esc(row.email||'')}"></div>`;
     }
-    if(key==='girls')fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur</label><select class="select" name="sector_id">${sectorOptions(row.sector_id)}</select></div><div class="field"><label>Contact</label><input class="input" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="gender"><option ${clean(row.gender||'Féminin')==='Féminin'?'selected':''}>Féminin</option><option ${clean(row.gender)==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="polling_station" value="${FCK.esc(row.polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="voting_place" value="${FCK.esc(row.voting_place||'')}"></div><div class="field"><label>Date de naissance</label><input class="input" type="date" name="birth_date" value="${FCK.esc(row.birth_date||'')}"></div><div class="field"><label>Localité</label><input class="input" name="locality" value="${FCK.esc(row.locality||'')}"></div><div class="field full"><label>Activité / Études</label><input class="input" name="occupation" value="${FCK.esc(row.occupation||'')}"></div><div class="field full section-separator"><strong>Personne alliée 1</strong></div><div class="field"><label>Nom complet</label><input class="input" name="ally1_name" value="${FCK.esc(row.ally1_name||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="ally1_gender"><option value="">—</option><option ${row.ally1_gender==='Féminin'?'selected':''}>Féminin</option><option ${row.ally1_gender==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="ally1_polling_station" value="${FCK.esc(row.ally1_polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="ally1_voting_place" value="${FCK.esc(row.ally1_voting_place||'')}"></div><div class="field full section-separator"><strong>Personne alliée 2</strong></div><div class="field"><label>Nom complet</label><input class="input" name="ally2_name" value="${FCK.esc(row.ally2_name||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="ally2_gender"><option value="">—</option><option ${row.ally2_gender==='Féminin'?'selected':''}>Féminin</option><option ${row.ally2_gender==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="ally2_polling_station" value="${FCK.esc(row.ally2_polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="ally2_voting_place" value="${FCK.esc(row.ally2_voting_place||'')}"></div><input type="hidden" name="status_label" value="${FCK.esc(row.status_label||'Actif')}">`;
-    if(key==='boys')fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur</label><select class="select" name="sector_id">${sectorOptions(row.sector_id)}</select></div><div class="field"><label>Contact</label><input class="input" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field"><label>Bureau de vote</label><input class="input" name="polling_station" value="${FCK.esc(row.polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="voting_place" value="${FCK.esc(row.voting_place||'')}"></div><div class="field"><label>Date de naissance</label><input class="input" type="date" name="birth_date" value="${FCK.esc(row.birth_date||'')}"></div><div class="field"><label>Localité</label><input class="input" name="locality" value="${FCK.esc(row.locality||'')}"></div><div class="field"><label>Activité / Études</label><input class="input" name="occupation" value="${FCK.esc(row.occupation||'')}"></div><input type="hidden" name="status_label" value="${FCK.esc(row.status_label||'Actif')}">`;
+    if(key==='girls'){
+      const linked=sectorById(row.sector_id);
+      const selectedSector=clean(linked?.name||row.sector_name||'');
+      const selectedLocality=clean(linked?.locality||row.locality||'');
+      fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur *</label><select class="select" id="girlSectorName" name="sector_name" required>${sectorNameOptions(selectedSector)}</select><input type="hidden" id="girlSectorId" name="sector_id" value="${FCK.esc(row.sector_id||'')}"></div><div class="field"><label>Localité *</label><select class="select" id="girlLocality" name="locality" required ${selectedSector?'':'disabled'}>${selectedSector?localityOptions(selectedSector,selectedLocality):'<option value="">— Choisir d’abord un secteur —</option>'}</select><span class="hint">La liste des localités dépend du secteur sélectionné.</span></div><div class="field"><label>Contact</label><input class="input" type="tel" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="gender"><option ${clean(row.gender||'Féminin')==='Féminin'?'selected':''}>Féminin</option><option ${clean(row.gender)==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="polling_station" value="${FCK.esc(row.polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="voting_place" value="${FCK.esc(row.voting_place||'')}"></div><div class="field"><label>Date de naissance</label><input class="input" type="date" name="birth_date" value="${FCK.esc(row.birth_date||'')}"></div><div class="field full"><label>Activité / Études</label><input class="input" name="occupation" value="${FCK.esc(row.occupation||'')}"></div><div class="field full section-separator"><strong>Personne alliée 1</strong></div><div class="field"><label>Nom complet</label><input class="input" name="ally1_name" value="${FCK.esc(row.ally1_name||'')}"></div><div class="field"><label>Contact</label><input class="input" type="tel" name="ally1_phone" value="${FCK.esc(row.ally1_phone||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="ally1_gender"><option value="">—</option><option ${row.ally1_gender==='Féminin'?'selected':''}>Féminin</option><option ${row.ally1_gender==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="ally1_polling_station" value="${FCK.esc(row.ally1_polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="ally1_voting_place" value="${FCK.esc(row.ally1_voting_place||'')}"></div><div class="field full section-separator"><strong>Personne alliée 2</strong></div><div class="field"><label>Nom complet</label><input class="input" name="ally2_name" value="${FCK.esc(row.ally2_name||'')}"></div><div class="field"><label>Contact</label><input class="input" type="tel" name="ally2_phone" value="${FCK.esc(row.ally2_phone||'')}"></div><div class="field"><label>Sexe</label><select class="select" name="ally2_gender"><option value="">—</option><option ${row.ally2_gender==='Féminin'?'selected':''}>Féminin</option><option ${row.ally2_gender==='Masculin'?'selected':''}>Masculin</option></select></div><div class="field"><label>Bureau de vote</label><input class="input" name="ally2_polling_station" value="${FCK.esc(row.ally2_polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="ally2_voting_place" value="${FCK.esc(row.ally2_voting_place||'')}"></div><input type="hidden" name="status_label" value="${FCK.esc(row.status_label||'Actif')}">`;
+    }
+    if(key==='boys'){
+      const linked=sectorById(row.sector_id);
+      const selectedSector=clean(linked?.name||row.sector_name||'');
+      const selectedLocality=clean(linked?.locality||row.locality||'');
+      fields=`<div class="field"><label>Nom complet *</label><input class="input" name="full_name" value="${FCK.esc(row.full_name||'')}" required></div><div class="field"><label>Secteur *</label><select class="select" id="boySectorName" name="sector_name" required>${sectorNameOptions(selectedSector)}</select><input type="hidden" id="boySectorId" name="sector_id" value="${FCK.esc(row.sector_id||'')}"></div><div class="field"><label>Localité *</label><select class="select" id="boyLocality" name="locality" required ${selectedSector?'':'disabled'}>${selectedSector?localityOptions(selectedSector,selectedLocality):'<option value="">— Choisir d’abord un secteur —</option>'}</select><span class="hint">La liste des localités dépend du secteur sélectionné.</span></div><div class="field"><label>Contact</label><input class="input" type="tel" name="phone" value="${FCK.esc(row.phone||'')}"></div><div class="field"><label>Bureau de vote</label><input class="input" name="polling_station" value="${FCK.esc(row.polling_station||'')}"></div><div class="field"><label>Lieu de vote</label><input class="input" name="voting_place" value="${FCK.esc(row.voting_place||'')}"></div><div class="field"><label>Date de naissance</label><input class="input" type="date" name="birth_date" value="${FCK.esc(row.birth_date||'')}"></div><div class="field"><label>Activité / Études</label><input class="input" name="occupation" value="${FCK.esc(row.occupation||'')}"></div><input type="hidden" name="status_label" value="${FCK.esc(row.status_label||'Actif')}">`;
+    }
 
     const approval=(editing&&isAgent())?`<div class="field full admin-approval"><label>Mot de passe d’un Administrateur *</label><input class="input" type="password" name="admin_password" autocomplete="off" required><span class="hint">Un Agent ne peut modifier une ligne qu’après validation par le mot de passe d’un Administrateur.</span></div>`:'';
     FCK.modal({title:`${editing?'Modifier':'Ajouter'} ${cfg.title}`,html:`<form id="entityForm" class="form-grid">${fields}${approval}<div class="field full"><div class="modal-actions"><button type="submit" class="btn btn-primary">Enregistrer</button></div></div></form>`,onReady:(wrap,close)=>{
       if(key==='responsibles')bindResponsibleHierarchy(wrap,row);
+      if(key==='girls')bindGirlHierarchy(wrap,row);
+      if(key==='boys')bindBoyHierarchy(wrap,row);
       wrap.querySelector('#entityForm').addEventListener('submit',async e=>{
         e.preventDefault();const obj=Object.fromEntries(new FormData(e.currentTarget));
         if(key==='responsibles'){
           const sectorName=clean(obj.sector_name);
-          if(sectorName){
-            if(!clean(obj.locality)){FCK.toast('Sélectionnez une localité.','error');return;}
-            const villages=uniq(sectorRows().filter(s=>clean(s.name)===sectorName&&clean(s.locality)===clean(obj.locality)).map(s=>s.village));
-            if(villages.length && !clean(obj.village)){FCK.toast('Sélectionnez un village.','error');return;}
-            const match=matchingSector(sectorName,obj.locality,obj.village);
-            if(!match){FCK.toast('La combinaison Secteur · Localité · Village n’existe pas dans la liste des secteurs.','error');return;}
-            obj.sector_id=match.id;
-          } else { obj.sector_id=''; obj.locality=''; obj.village=''; }
+          if(!sectorName){FCK.toast('Sélectionnez un secteur.','error');return;}
+          if(!clean(obj.locality)){FCK.toast('Sélectionnez une localité.','error');return;}
+          if(!RESPONSIBLE_ROLES.includes(clean(obj.function_title))){FCK.toast('Sélectionnez une fonction valide.','error');return;}
+          const match=matchingSector(sectorName,obj.locality);
+          if(!match){FCK.toast('La combinaison Secteur · Localité n’existe pas dans la liste des secteurs.','error');return;}
+          const duplicate=(data?.responsibles||[]).find(r=>r.id!==row.id&&clean(r.locality).toLowerCase()===clean(obj.locality).toLowerCase()&&clean(r.function_title).toLowerCase()===clean(obj.function_title).toLowerCase());
+          if(duplicate){FCK.toast(`La fonction « ${clean(obj.function_title)} » est déjà attribuée dans cette localité.`,'error');return;}
+          obj.sector_id=match.id;
+          delete obj.sector_name;
+        }
+        if(key==='girls'){
+          const sectorName=clean(obj.sector_name);
+          const locality=clean(obj.locality);
+          if(!sectorName){FCK.toast('Sélectionnez un secteur.','error');return;}
+          if(!locality){FCK.toast('Sélectionnez une localité.','error');return;}
+          const match=matchingSector(sectorName,locality);
+          if(!match){FCK.toast('La combinaison Secteur · Localité n’existe pas dans la liste des secteurs.','error');return;}
+          obj.sector_id=match.id;
+          obj.locality=clean(match.locality);
+          delete obj.sector_name;
+        }
+        if(key==='boys'){
+          const sectorName=clean(obj.sector_name);
+          const locality=clean(obj.locality);
+          if(!sectorName){FCK.toast('Sélectionnez un secteur.','error');return;}
+          if(!locality){FCK.toast('Sélectionnez une localité.','error');return;}
+          const match=matchingSector(sectorName,locality);
+          if(!match){FCK.toast('La combinaison Secteur · Localité n’existe pas dans la liste des secteurs.','error');return;}
+          obj.sector_id=match.id;
+          obj.locality=clean(match.locality);
           delete obj.sector_name;
         }
         if(editing)obj.id=row.id;const [add,update]=actionNames();

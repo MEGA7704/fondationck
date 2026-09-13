@@ -285,7 +285,7 @@
 
   function footer(){
     const el=document.getElementById('siteFooter'); if(!el)return;
-    el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div></div></div>`;
+    el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div><div class="footer-copyright">©2026 Méga Services SARL U - Tous droits réservés</div></div></div>`;
   }
 
   window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate, printProfessional };
