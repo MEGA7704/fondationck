@@ -19,7 +19,7 @@
   function render(){
     if(!cfg||!data)return;if(!FCK.guardPage(data,cfg.access))return;if(FCK.subscriptionGate(data,'#protectedMain'))return;
     const action=document.getElementById('pageAction');
-    action.innerHTML=`<div class="page-actions">${canPrint()?`<button id="printBtn" class="btn btn-outline">🖨 Imprimer la liste</button>`:''}${canAdd()?`<button id="addBtn" class="btn btn-orange">＋ ${cfg.addLabel}</button>`:''}</div>`;
+    action.innerHTML=`<div class="page-actions">${canPrint()?`<button id="printBtn" class="btn btn-outline">🖨 Imprimer PDF</button>`:''}${canAdd()?`<button id="addBtn" class="btn btn-orange">＋ ${cfg.addLabel}</button>`:''}</div>`;
     action.querySelector('#addBtn')?.addEventListener('click',()=>openForm());
     action.querySelector('#printBtn')?.addEventListener('click',printList);
     applyFilter();
@@ -36,10 +36,8 @@
     area.querySelectorAll('[data-delete]').forEach(b=>b.addEventListener('click',()=>remove(b.dataset.delete)));
   }
   function printList(){
-    const oldTitle=document.title; document.title=`${cfg.plural} — LA FONDATION CK`;
-    document.body.classList.add('printing-list');
-    const cleanup=()=>{document.body.classList.remove('printing-list');document.title=oldTitle;window.removeEventListener('afterprint',cleanup)};
-    window.addEventListener('afterprint',cleanup); window.print(); setTimeout(cleanup,1500);
+    const table=document.getElementById('printableTable');if(!table)return;
+    FCK.printProfessional({title:cfg.plural,subtitle:`${filtered.length} élément(s) enregistré(s)`,source:table,orientation:'landscape'});
   }
   function sectorRows(){return data?.sectors||[]}
   function sectorOptions(selected=''){return `<option value="">— Aucun / non précisé —</option>`+sectorRows().map(s=>`<option value="${s.id}" ${s.id===selected?'selected':''}>${FCK.esc(s.name)}${s.locality?` · ${FCK.esc(s.locality)}`:''}${s.village?` · ${FCK.esc(s.village)}`:''}</option>`).join('')}

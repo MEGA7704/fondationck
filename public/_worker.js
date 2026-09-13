@@ -17,6 +17,7 @@ export default {
         await ensureRuntimeSecurityMigration(env);
         await ensureHierarchyVillageMigration(env);
         await ensureAssociationsMigration(env);
+        await ensureAssociationLeaderMigration(env);
         await ensureAccountRolesMigration(env);
         await ensureSuperAdmin(env, request);
         return await handleApi(request, env, ctx, url);
@@ -180,6 +181,60 @@ async function ensureAssociationsMigration(env) {
     await env.FONDATIONCK_KV.put(key, '1');
   } catch (e) {
     console.warn('Associations migration pending:', e?.message || e);
+  }
+}
+
+
+async function ensureAssociationLeaderMigration(env) {
+  // V2.7 : le responsable principal est stocké directement sur l'association
+  // et apparaît comme première ligne de la liste des membres.
+  const key = 'migration:association-leader:v2.7';
+  try { if (await env.FONDATIONCK_KV.get(key)) return; } catch {}
+  const ensureColumn = async (table, column, ddl) => {
+    const info = await env.FONDATIONCK_DB.prepare(`PRAGMA table_info(${table})`).all();
+    if ((info.results || []).some(c => c.name === column)) return;
+    try { await env.FONDATIONCK_DB.prepare(ddl).run(); }
+    catch (e) { if (!/duplicate column name/i.test(String(e?.message || e))) throw e; }
+  };
+  try {
+    await ensureColumn('associations', 'responsible_name', `ALTER TABLE associations ADD COLUMN responsible_name TEXT DEFAULT ''`);
+    await ensureColumn('association_members', 'is_primary_responsible', `ALTER TABLE association_members ADD COLUMN is_primary_responsible INTEGER NOT NULL DEFAULT 0`);
+    await env.FONDATIONCK_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_assoc_members_primary ON association_members(organization_id, association_id, is_primary_responsible DESC)`).run();
+
+    const legacyTable = await env.FONDATIONCK_DB.prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name='association_responsibles'`).first();
+    const associations = legacyTable
+      ? await env.FONDATIONCK_DB.prepare(`
+          SELECT a.id,a.organization_id,a.locality,a.village,a.responsible_name,
+            (SELECT r.full_name FROM association_responsibles r
+             WHERE r.organization_id=a.organization_id AND r.association_id=a.id
+             ORDER BY datetime(r.created_at),r.full_name LIMIT 1) AS legacy_responsible_name
+          FROM associations a
+        `).all()
+      : await env.FONDATIONCK_DB.prepare(`SELECT id,organization_id,locality,village,responsible_name,'' AS legacy_responsible_name FROM associations`).all();
+    for (const a of (associations.results || [])) {
+      const leader = clean(a.responsible_name || a.legacy_responsible_name, 140);
+      if (!leader) continue;
+      if (!clean(a.responsible_name,140)) {
+        await env.FONDATIONCK_DB.prepare(`UPDATE associations SET responsible_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`)
+          .bind(leader,a.id,a.organization_id).run();
+      }
+      let primary = await env.FONDATIONCK_DB.prepare(`SELECT id FROM association_members WHERE organization_id=? AND association_id=? AND is_primary_responsible=1 LIMIT 1`)
+        .bind(a.organization_id,a.id).first();
+      if (!primary) {
+        const same = await env.FONDATIONCK_DB.prepare(`SELECT id FROM association_members WHERE organization_id=? AND association_id=? AND lower(full_name)=lower(?) LIMIT 1`)
+          .bind(a.organization_id,a.id,leader).first();
+        if (same) {
+          await env.FONDATIONCK_DB.prepare(`UPDATE association_members SET is_primary_responsible=1,occupation=CASE WHEN trim(COALESCE(occupation,''))='' THEN 'Responsable principal' ELSE occupation END,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`)
+            .bind(same.id,a.organization_id).run();
+        } else {
+          await env.FONDATIONCK_DB.prepare(`INSERT INTO association_members (id,organization_id,association_id,full_name,locality,village,occupation,status_label,is_primary_responsible) VALUES (?,?,?,?,?,?,?,'Actif',1)`)
+            .bind(crypto.randomUUID(),a.organization_id,a.id,leader,clean(a.locality,140),clean(a.village,140),'Responsable principal').run();
+        }
+      }
+    }
+    await env.FONDATIONCK_KV.put(key, '1');
+  } catch (e) {
+    console.warn('Association leader migration pending:', e?.message || e);
   }
 }
 
@@ -542,7 +597,6 @@ async function loadData(env, session, url) {
     responsibles: [],
     associations: [],
     association_members: [],
-    association_responsibles: [],
     girls: [],
     boys: [],
     news: [],
@@ -569,8 +623,7 @@ async function loadData(env, session, url) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('associations', env.FONDATIONCK_DB.prepare(`
       SELECT a.*, s.name AS sector_name,
-        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=a.organization_id AND m.association_id=a.id) AS members_count,
-        (SELECT COUNT(*) FROM association_responsibles r WHERE r.organization_id=a.organization_id AND r.association_id=a.id) AS responsibles_count
+        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=a.organization_id AND m.association_id=a.id) AS members_count
       FROM associations a
       LEFT JOIN sectors s ON s.id=a.sector_id
       WHERE a.organization_id=?
@@ -579,12 +632,7 @@ async function loadData(env, session, url) {
     add('association_members', env.FONDATIONCK_DB.prepare(`
       SELECT m.*, a.name AS association_name
       FROM association_members m JOIN associations a ON a.id=m.association_id
-      WHERE m.organization_id=? ORDER BY a.name,m.full_name
-    `).bind(orgId).all());
-    add('association_responsibles', env.FONDATIONCK_DB.prepare(`
-      SELECT r.*, a.name AS association_name
-      FROM association_responsibles r JOIN associations a ON a.id=r.association_id
-      WHERE r.organization_id=? ORDER BY a.name,r.full_name
+      WHERE m.organization_id=? ORDER BY a.name,m.is_primary_responsible DESC,m.full_name
     `).bind(orgId).all());
   }
   if (scope === 'girls' && access.girls) {
@@ -602,10 +650,9 @@ async function loadData(env, session, url) {
         (SELECT COUNT(*) FROM responsibles WHERE organization_id=?) AS responsibles,
         (SELECT COUNT(*) FROM associations WHERE organization_id=?) AS associations,
         (SELECT COUNT(*) FROM association_members WHERE organization_id=?) AS association_members,
-        (SELECT COUNT(*) FROM association_responsibles WHERE organization_id=?) AS association_responsibles,
         (SELECT COUNT(*) FROM girls WHERE organization_id=?) AS girls,
         (SELECT COUNT(*) FROM boys WHERE organization_id=?) AS boys
-    `).bind(orgId,orgId,orgId,orgId,orgId,orgId,orgId).first());
+    `).bind(orgId,orgId,orgId,orgId,orgId,orgId).first());
     add('report_by_sector', env.FONDATIONCK_DB.prepare(`
       SELECT s.id,s.name,s.locality,s.village,
         (SELECT COUNT(*) FROM responsibles r WHERE r.organization_id=? AND r.sector_id=s.id) AS responsibles,
@@ -616,12 +663,11 @@ async function loadData(env, session, url) {
       ORDER BY s.name,s.locality,s.village
     `).bind(orgId,orgId,orgId,orgId,orgId).all());
     add('report_by_association', env.FONDATIONCK_DB.prepare(`
-      SELECT a.id,a.name,a.acronym,a.activity_area,a.locality,a.village,a.status_label,
-        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=? AND m.association_id=a.id) AS members,
-        (SELECT COUNT(*) FROM association_responsibles r WHERE r.organization_id=? AND r.association_id=a.id) AS responsibles
+      SELECT a.id,a.name,a.responsible_name,a.acronym,a.activity_area,a.locality,
+        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=? AND m.association_id=a.id) AS members
       FROM associations a WHERE a.organization_id=?
       ORDER BY a.name
-    `).bind(orgId,orgId,orgId).all());
+    `).bind(orgId,orgId).all());
   }
 
   const canManageSettings = user.role === 'superadmin' || isPrincipalAdmin(user);
@@ -678,15 +724,13 @@ async function saveData(request, env, session) {
     'add-responsible':'responsibles','update-responsible':'responsibles','delete-responsible':'responsibles',
     'add-association':'associations','update-association':'associations','delete-association':'associations',
     'add-association-member':'associations','update-association-member':'associations','delete-association-member':'associations',
-    'add-association-responsible':'associations','update-association-responsible':'associations','delete-association-responsible':'associations',
     'add-girl':'girls','update-girl':'girls','delete-girl':'girls',
     'add-boy':'boys','update-boy':'boys','delete-boy':'boys'
   };
-  const addActions = new Set(['add-sector','add-responsible','add-association','add-association-member','add-association-responsible','add-girl','add-boy']);
+  const addActions = new Set(['add-sector','add-responsible','add-association','add-association-member','add-girl','add-boy']);
   const guardedAgentActions = new Set([
     'update-sector','delete-sector','update-responsible','delete-responsible',
     'update-association','delete-association','update-association-member','delete-association-member',
-    'update-association-responsible','delete-association-responsible',
     'update-girl','delete-girl','update-boy','delete-boy'
   ]);
   if (principalOnly.has(action) && !(user.role === 'superadmin' || isPrincipalAdmin(user))) {
@@ -720,9 +764,6 @@ async function saveData(request, env, session) {
     case 'add-association-member': result = await addAssociationMember(env, orgId, body); break;
     case 'update-association-member': result = await updateAssociationMember(env, orgId, body); break;
     case 'delete-association-member': result = await deleteAssociationChild(env, 'association_members', orgId, body.id); break;
-    case 'add-association-responsible': result = await addAssociationResponsible(env, orgId, body); break;
-    case 'update-association-responsible': result = await updateAssociationResponsible(env, orgId, body); break;
-    case 'delete-association-responsible': result = await deleteAssociationChild(env, 'association_responsibles', orgId, body.id); break;
     case 'add-girl': result = await addYoung(env, 'girls', orgId, body); break;
     case 'update-girl': result = await updateYoung(env, 'girls', orgId, body); break;
     case 'delete-girl': result = await deleteEntity(env, 'girls', orgId, body.id); break;
@@ -843,66 +884,111 @@ async function associationContext(env, orgId, rawId) {
   const id = clean(rawId, 80);
   if (!id) throw bad('Association requise.');
   const row = await env.FONDATIONCK_DB.prepare(`
-    SELECT id,name,locality,village FROM associations
+    SELECT id,name,responsible_name,locality,village FROM associations
     WHERE id=? AND organization_id=?
   `).bind(id, orgId).first();
   if (!row) throw bad('Association introuvable.');
   return row;
 }
 
+async function syncAssociationPrimaryMember(env, orgId, association, leaderName) {
+  const leader = clean(leaderName, 140);
+  if (!leader) throw bad('Nom du responsable requis.');
+  const current = await env.FONDATIONCK_DB.prepare(`
+    SELECT id FROM association_members
+    WHERE organization_id=? AND association_id=? AND is_primary_responsible=1
+    LIMIT 1
+  `).bind(orgId,association.id).first();
+  if (current) {
+    await env.FONDATIONCK_DB.prepare(`
+      UPDATE association_members SET full_name=?,locality=?,village=?,occupation='Responsable principal',status_label='Actif',updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND organization_id=?
+    `).bind(leader,clean(association.locality,140),clean(association.village,140),current.id,orgId).run();
+    return current.id;
+  }
+  const existing = await env.FONDATIONCK_DB.prepare(`
+    SELECT id FROM association_members
+    WHERE organization_id=? AND association_id=? AND lower(full_name)=lower(?)
+    LIMIT 1
+  `).bind(orgId,association.id,leader).first();
+  if (existing) {
+    await env.FONDATIONCK_DB.prepare(`
+      UPDATE association_members SET is_primary_responsible=1,locality=?,village=?,occupation='Responsable principal',status_label='Actif',updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND organization_id=?
+    `).bind(clean(association.locality,140),clean(association.village,140),existing.id,orgId).run();
+    return existing.id;
+  }
+  const id=crypto.randomUUID();
+  await env.FONDATIONCK_DB.prepare(`
+    INSERT INTO association_members (
+      id,organization_id,association_id,full_name,locality,village,occupation,status_label,is_primary_responsible
+    ) VALUES (?,?,?,?,?,?,?,'Actif',1)
+  `).bind(id,orgId,association.id,leader,clean(association.locality,140),clean(association.village,140),'Responsable principal').run();
+  return id;
+}
+
 async function addAssociation(env, orgId, b) {
   const id = crypto.randomUUID();
   const name = clean(b.name, 180);
+  const responsibleName = clean(b.responsible_name, 140);
   if (!name) throw bad('Nom de l’association requis.');
+  if (!responsibleName) throw bad('Nom du responsable requis.');
   const sector = b.sector_id ? await sectorContext(env, orgId, b.sector_id) : null;
   const locality = sector ? clean(sector.locality, 140) : clean(b.locality, 140);
   const village = sector ? clean(sector.village, 140) : clean(b.village, 140);
-  await env.FONDATIONCK_DB.prepare(`
-    INSERT INTO associations (
-      id,organization_id,sector_id,name,acronym,activity_area,creation_date,
-      registration_number,headquarters,phone,email,locality,village,description,status_label
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-  `).bind(
-    id,orgId,sector?.id||null,name,clean(b.acronym,60),clean(b.activity_area,180),
-    clean(b.creation_date,20),clean(b.registration_number,100),clean(b.headquarters,220),
-    clean(b.phone,40),clean(b.email,180),locality,village,clean(b.description,2500),
-    clean(b.status_label,80)||'Active'
-  ).run();
+  const primaryMemberId=crypto.randomUUID();
+  await env.FONDATIONCK_DB.batch([
+    env.FONDATIONCK_DB.prepare(`
+      INSERT INTO associations (
+        id,organization_id,sector_id,name,responsible_name,acronym,activity_area,creation_date,
+        registration_number,headquarters,phone,email,locality,village,description,status_label
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `).bind(
+      id,orgId,sector?.id||null,name,responsibleName,clean(b.acronym,60),clean(b.activity_area,180),
+      clean(b.creation_date,20),clean(b.registration_number,100),clean(b.headquarters,220),
+      clean(b.phone,40),clean(b.email,180),locality,village,clean(b.description,2500),
+      clean(b.status_label,80)||'Active'
+    ),
+    env.FONDATIONCK_DB.prepare(`
+      INSERT INTO association_members (
+        id,organization_id,association_id,full_name,locality,village,occupation,status_label,is_primary_responsible
+      ) VALUES (?,?,?,?,?,?,?,'Actif',1)
+    `).bind(primaryMemberId,orgId,id,responsibleName,locality,village,'Responsable principal')
+  ]);
   return { target_type:'association', target_id:id, message:'Association ajoutée.' };
 }
 
 async function updateAssociation(env, orgId, b) {
-  const id = clean(b.id,80), name = clean(b.name,180);
+  const id = clean(b.id,80), name = clean(b.name,180), responsibleName=clean(b.responsible_name,140);
   if (!id || !name) throw bad('Données de l’association incomplètes.');
+  if (!responsibleName) throw bad('Nom du responsable requis.');
   const sector = b.sector_id ? await sectorContext(env, orgId, b.sector_id) : null;
   const locality = sector ? clean(sector.locality,140) : clean(b.locality,140);
   const village = sector ? clean(sector.village,140) : clean(b.village,140);
   const r = await env.FONDATIONCK_DB.prepare(`
     UPDATE associations SET
-      sector_id=?,name=?,acronym=?,activity_area=?,creation_date=?,registration_number=?,
+      sector_id=?,name=?,responsible_name=?,acronym=?,activity_area=?,creation_date=?,registration_number=?,
       headquarters=?,phone=?,email=?,locality=?,village=?,description=?,status_label=?,
       updated_at=CURRENT_TIMESTAMP
     WHERE id=? AND organization_id=?
   `).bind(
-    sector?.id||null,name,clean(b.acronym,60),clean(b.activity_area,180),
+    sector?.id||null,name,responsibleName,clean(b.acronym,60),clean(b.activity_area,180),
     clean(b.creation_date,20),clean(b.registration_number,100),clean(b.headquarters,220),
     clean(b.phone,40),clean(b.email,180),locality,village,clean(b.description,2500),
     clean(b.status_label,80)||'Active',id,orgId
   ).run();
   ensureChanged(r);
+  await syncAssociationPrimaryMember(env,orgId,{id,locality,village},responsibleName);
   return { target_type:'association', target_id:id, message:'Association modifiée.' };
 }
 
 async function deleteAssociation(env, orgId, rawId) {
   const id = clean(rawId,80);
   if (!id) throw bad('Identifiant manquant.');
-  await env.FONDATIONCK_DB.batch([
-    env.FONDATIONCK_DB.prepare('DELETE FROM association_members WHERE association_id=? AND organization_id=?').bind(id,orgId),
-    env.FONDATIONCK_DB.prepare('DELETE FROM association_responsibles WHERE association_id=? AND organization_id=?').bind(id,orgId)
-  ]);
+  await env.FONDATIONCK_DB.prepare('DELETE FROM association_members WHERE association_id=? AND organization_id=?').bind(id,orgId).run();
   const r = await env.FONDATIONCK_DB.prepare('DELETE FROM associations WHERE id=? AND organization_id=?').bind(id,orgId).run();
   ensureChanged(r);
-  return { target_type:'association', target_id:id, message:'Association supprimée avec ses listes liées.' };
+  return { target_type:'association', target_id:id, message:'Association supprimée avec sa liste de membres.' };
 }
 
 async function addAssociationMember(env, orgId, b) {
@@ -913,8 +999,8 @@ async function addAssociationMember(env, orgId, b) {
   await env.FONDATIONCK_DB.prepare(`
     INSERT INTO association_members (
       id,organization_id,association_id,full_name,gender,phone,email,locality,village,
-      occupation,joined_at,status_label
-    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      occupation,joined_at,status_label,is_primary_responsible
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,0)
   `).bind(
     id,orgId,association.id,full,clean(b.gender,30),clean(b.phone,40),clean(b.email,180),
     clean(b.locality,140)||association.locality,clean(b.village,140)||association.village,
@@ -927,6 +1013,9 @@ async function updateAssociationMember(env, orgId, b) {
   const id = clean(b.id,80), association = await associationContext(env, orgId, b.association_id);
   const full = clean(b.full_name,140);
   if (!id || !full) throw bad('Données du membre incomplètes.');
+  const current=await env.FONDATIONCK_DB.prepare(`SELECT is_primary_responsible FROM association_members WHERE id=? AND organization_id=?`).bind(id,orgId).first();
+  if (!current) throw bad('Membre introuvable.');
+  if (Number(current.is_primary_responsible||0)===1) throw bad('Le responsable principal se modifie depuis la fiche de l’association.');
   const r = await env.FONDATIONCK_DB.prepare(`
     UPDATE association_members SET
       association_id=?,full_name=?,gender=?,phone=?,email=?,locality=?,village=?,
@@ -941,46 +1030,14 @@ async function updateAssociationMember(env, orgId, b) {
   return { target_type:'association_member', target_id:id, message:'Membre modifié.' };
 }
 
-async function addAssociationResponsible(env, orgId, b) {
-  const association = await associationContext(env, orgId, b.association_id);
-  const full = clean(b.full_name,140);
-  if (!full) throw bad('Nom du responsable requis.');
-  const id = crypto.randomUUID();
-  await env.FONDATIONCK_DB.prepare(`
-    INSERT INTO association_responsibles (
-      id,organization_id,association_id,full_name,function_title,phone,email,locality,village
-    ) VALUES (?,?,?,?,?,?,?,?,?)
-  `).bind(
-    id,orgId,association.id,full,clean(b.function_title,140)||'Responsable',
-    clean(b.phone,40),clean(b.email,180),clean(b.locality,140)||association.locality,
-    clean(b.village,140)||association.village
-  ).run();
-  return { target_type:'association_responsible', target_id:id, message:'Responsable ajouté à l’association.' };
-}
-
-async function updateAssociationResponsible(env, orgId, b) {
-  const id = clean(b.id,80), association = await associationContext(env, orgId, b.association_id);
-  const full = clean(b.full_name,140);
-  if (!id || !full) throw bad('Données du responsable incomplètes.');
-  const r = await env.FONDATIONCK_DB.prepare(`
-    UPDATE association_responsibles SET
-      association_id=?,full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,
-      updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND organization_id=?
-  `).bind(
-    association.id,full,clean(b.function_title,140)||'Responsable',clean(b.phone,40),
-    clean(b.email,180),clean(b.locality,140)||association.locality,
-    clean(b.village,140)||association.village,id,orgId
-  ).run();
-  ensureChanged(r);
-  return { target_type:'association_responsible', target_id:id, message:'Responsable modifié.' };
-}
-
 async function deleteAssociationChild(env, table, orgId, rawId) {
-  if (!['association_members','association_responsibles'].includes(table)) throw bad('Table interdite.');
+  if (table !== 'association_members') throw bad('Table interdite.');
   const id = clean(rawId,80);
   if (!id) throw bad('Identifiant manquant.');
-  const r = await env.FONDATIONCK_DB.prepare(`DELETE FROM ${table} WHERE id=? AND organization_id=?`).bind(id,orgId).run();
+  const current=await env.FONDATIONCK_DB.prepare(`SELECT is_primary_responsible FROM association_members WHERE id=? AND organization_id=?`).bind(id,orgId).first();
+  if (!current) throw bad('Membre introuvable.');
+  if (Number(current.is_primary_responsible||0)===1) throw bad('Le responsable principal ne peut pas être supprimé depuis la liste des membres. Modifiez le responsable dans la fiche de l’association.');
+  const r = await env.FONDATIONCK_DB.prepare(`DELETE FROM association_members WHERE id=? AND organization_id=?`).bind(id,orgId).run();
   ensureChanged(r);
   return { target_type:table, target_id:id };
 }

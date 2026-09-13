@@ -193,12 +193,59 @@
     });
     observer.observe(document.body,{childList:true,subtree:true});
   }
+  function printProfessional({title='Document', subtitle='', source=null, orientation='landscape'}={}) {
+    if(!source)return;
+    const clone=source.cloneNode(true);
+    clone.querySelectorAll('button,.no-print,.actions').forEach(el=>el.remove());
+    clone.querySelectorAll('table').forEach(table=>{
+      const headers=[...table.querySelectorAll('thead th')];
+      const actionIndex=headers.findIndex(th=>/^actions?$/i.test((th.textContent||'').trim()));
+      if(actionIndex>=0){
+        table.querySelectorAll('tr').forEach(tr=>tr.children[actionIndex]?.remove());
+      }
+    });
+    const w=window.open('','_blank','width=1200,height=850');
+    if(!w){toast('Autorisez les fenêtres pop-up pour imprimer le PDF.','error');return;}
+    const logo=`${location.origin}/assets/logo-fondation-ck.png`;
+    const now=new Date();
+    const dateLabel=now.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit',year:'numeric'});
+    const timeLabel=now.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+    const safeOrientation=orientation==='portrait'?'portrait':'landscape';
+    w.document.write(`<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>${esc(title)} — LA FONDATION CK</title><style>
+      @page{size:A4 ${safeOrientation};margin:12mm 10mm 16mm}
+      *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+      html,body{margin:0;padding:0;background:#fff;color:#183128;font-family:Arial,Helvetica,sans-serif}
+      body{font-size:10.5px;padding-bottom:18mm}
+      .print-head{display:flex;align-items:center;gap:14px;border-bottom:3px solid #f47c20;padding:0 0 9px;margin:0 0 12px}
+      .print-head img{width:68px;height:68px;object-fit:contain}
+      .identity{flex:1}.identity h1{margin:0;color:#0a6947;font-size:20px;letter-spacing:.2px}.identity .motto{font-size:10px;color:#5a665f;margin-top:3px}
+      .doc-title{text-align:right;max-width:48%}.doc-title h2{margin:0 0 4px;font-size:16px;color:#173e32}.doc-title p{margin:0;color:#6b746f;font-size:9.5px;line-height:1.35}
+      .print-meta{display:flex;justify-content:space-between;gap:12px;margin:0 0 10px;padding:7px 9px;background:#f4f8f6;border:1px solid #d8e4dd;border-radius:7px;color:#52635b;font-size:9px}
+      .print-content{width:100%}.table-wrap{overflow:visible!important}.empty-state{padding:20px;text-align:center}
+      .stats{display:grid!important;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:0 0 10px}.stat{border:1px solid #d8e4dd;border-radius:7px;padding:7px;background:#f7faf8;text-align:center}.stat small{display:block;color:#68756f;font-size:7.8px;margin-bottom:2px}.stat strong{font-size:14px;color:#0a6947}
+      table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:9.5px}
+      thead{display:table-header-group}tr{page-break-inside:avoid}th,td{border:1px solid #cbd8d1;padding:6px 5px;vertical-align:middle;text-align:center;overflow-wrap:anywhere;word-break:normal}
+      th{background:#0a6947!important;color:#fff!important;font-weight:700;text-transform:uppercase;font-size:8.6px;letter-spacing:.25px}
+      tbody tr:nth-child(even) td{background:#f7faf8!important}tbody td:first-child{text-align:left;font-weight:600}
+      .badge{display:inline-block;padding:2px 5px;border:1px solid #b7c9bf;border-radius:999px;font-size:8px;background:#eef6f1;color:#0a6947}.hint{font-size:8.5px;color:#6c756f}
+      .row-selected td{background:#eef8f3!important}
+      .print-foot{position:fixed;left:0;right:0;bottom:-9mm;border-top:1px solid #d8e4dd;padding-top:5px;display:flex;justify-content:space-between;gap:12px;color:#65736c;font-size:8px;background:#fff}
+      a{color:inherit;text-decoration:none}h3{margin:0 0 8px;color:#173e32}
+    </style></head><body><header class="print-head"><img src="${logo}" alt="Logo"><div class="identity"><h1>LA FONDATION CK</h1><div class="motto">Charité · Cohésion · Développement</div></div><div class="doc-title"><h2>${esc(title)}</h2>${subtitle?`<p>${esc(subtitle)}</p>`:''}</div></header><div class="print-meta"><span>Document édité le ${dateLabel} à ${timeLabel}</span><span>Côte d’Ivoire</span></div><main class="print-content">${clone.outerHTML}</main><footer class="print-foot"><span>${FOUNDATION_PHONE} · ${FOUNDATION_EMAIL}</span><span>LA FONDATION CK</span></footer></body></html>`);
+    w.document.close();
+    let printed=false;
+    const run=()=>{if(printed)return;printed=true;w.focus();w.print();};
+    const imgs=[...w.document.images];
+    if(!imgs.length||imgs.every(i=>i.complete))setTimeout(run,250);
+    else{let left=imgs.length;imgs.forEach(img=>{const done=()=>{left--;if(left<=0)setTimeout(run,150)};img.addEventListener('load',done,{once:true});img.addEventListener('error',done,{once:true})});setTimeout(run,1200)}
+  }
+
   function footer(){
     const el=document.getElementById('siteFooter'); if(!el)return;
     el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div></div></div>`;
   }
 
-  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate };
+  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate, printProfessional };
   document.addEventListener('DOMContentLoaded', async () => {
     initBackgroundSlideshow();
     renderHeader(); footer();

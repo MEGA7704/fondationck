@@ -1,4 +1,4 @@
-# Déploiement exact — LA FONDATION CK V2.5
+# Déploiement exact — LA FONDATION CK V2.7
 
 ## 1. GitHub
 
@@ -45,7 +45,7 @@ Ne publiez jamais le mot de passe dans GitHub.
 
 ## 5. D1
 
-Ne supprimez pas la base existante. La V2.5 crée automatiquement les tables Associations au premier appel API.
+Ne supprimez pas la base existante. La V2.7 met automatiquement à niveau les Associations et le responsable principal au premier appel API.
 
 Pour forcer les migrations :
 
@@ -54,10 +54,11 @@ npm install
 npx wrangler d1 migrations apply fondationck-d1 --remote
 ```
 
-La migration V2.5 est :
+Les migrations Associations sont :
 
 ```text
 0004_associations.sql
+0005_association_responsable_principal.sql
 ```
 
 ## 6. Après déploiement

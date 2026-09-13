@@ -1,0 +1,25 @@
+LA FONDATION CK — V2.7
+
+ASSOCIATIONS
+- Tableau « Liste des associations » simplifié : suppression des colonnes Village, Membres et Statut.
+- Ajout de la colonne « Responsable » avec le nom du responsable principal.
+- Formulaire « Ajouter / Modifier une association » : ajout du champ obligatoire « Nom du responsable ».
+- Le responsable principal est automatiquement créé comme première ligne de la liste des membres.
+- La modification du nom du responsable depuis l'association met automatiquement à jour cette première ligne.
+- La ligne du responsable principal ne peut pas être supprimée ou modifiée directement depuis la liste des membres.
+- Suppression complète de l'interface « Responsables / Liste des responsables de l'association ».
+
+MEMBRES
+- Tableau simplifié : suppression des colonnes Localité, Adhésion et Statut.
+- Ordre garanti : le responsable principal apparaît toujours en première ligne.
+
+IMPRESSION / PDF
+- Nouvelle mise en page professionnelle A4 paysage.
+- En-tête avec logo, identité de LA FONDATION CK et titre du document.
+- Tableaux harmonisés, lisibles, avec alternance de lignes et suppression des colonnes Actions.
+- Pied de page avec contacts de la Fondation et date d'édition.
+- Mise à niveau de l'impression des listes générales, associations, membres et rapport.
+
+MIGRATION
+- Migration automatique V2.7 sans suppression des données existantes.
+- Les anciennes données de la table association_responsibles peuvent être utilisées pour initialiser le responsable principal des associations existantes.

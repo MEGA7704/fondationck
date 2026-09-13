@@ -12,19 +12,18 @@
       <div class="stat"><small>Responsables secteurs</small><strong>${n(totals.responsibles)}</strong></div>
       <div class="stat"><small>Associations</small><strong>${n(totals.associations)}</strong></div>
       <div class="stat"><small>Membres associations</small><strong>${n(totals.association_members)}</strong></div>
-      <div class="stat"><small>Responsables associations</small><strong>${n(totals.association_responsibles)}</strong></div>
       <div class="stat"><small>Jeunes filles</small><strong>${n(totals.girls)}</strong></div>
       <div class="stat"><small>Jeunes garçons</small><strong>${n(totals.boys)}</strong></div>`;
     const rows=data.report?.by_sector||[];
     document.getElementById('reportTable').innerHTML=`<table id="reportPrintable"><thead><tr><th>Secteur</th><th>Localité</th><th>Village</th><th>Responsables</th><th>Associations</th><th>Jeunes filles</th><th>Jeunes garçons</th><th>Total jeunes</th></tr></thead><tbody>${rows.map(r=>`<tr><td>${FCK.esc(r.name||'—')}</td><td>${FCK.esc(r.locality||'—')}</td><td>${FCK.esc(r.village||'—')}</td><td>${n(r.responsibles)}</td><td>${n(r.associations)}</td><td>${n(r.girls)}</td><td>${n(r.boys)}</td><td><strong>${n(r.girls)+n(r.boys)}</strong></td></tr>`).join('')||'<tr><td colspan="8">Aucun secteur enregistré.</td></tr>'}<tr><td colspan="3"><strong>TOTAL GÉNÉRAL</strong></td><td><strong>${n(totals.responsibles)}</strong></td><td><strong>${n(totals.associations)}</strong></td><td><strong>${n(totals.girls)}</strong></td><td><strong>${n(totals.boys)}</strong></td><td><strong>${totalYoung}</strong></td></tr></tbody></table>`;
     const assoc=data.report?.by_association||[];
-    document.getElementById('associationReportTable').innerHTML=`<table><thead><tr><th>Association</th><th>Sigle</th><th>Domaine</th><th>Localité</th><th>Village</th><th>Membres</th><th>Responsables</th><th>Statut</th></tr></thead><tbody>${assoc.map(a=>`<tr><td>${FCK.esc(a.name||'—')}</td><td>${FCK.esc(a.acronym||'—')}</td><td>${FCK.esc(a.activity_area||'—')}</td><td>${FCK.esc(a.locality||'—')}</td><td>${FCK.esc(a.village||'—')}</td><td>${n(a.members)}</td><td>${n(a.responsibles)}</td><td>${FCK.esc(a.status_label||'Active')}</td></tr>`).join('')||'<tr><td colspan="8">Aucune association enregistrée.</td></tr>'}<tr><td colspan="5"><strong>TOTAL ASSOCIATIONS</strong></td><td><strong>${n(totals.association_members)}</strong></td><td><strong>${n(totals.association_responsibles)}</strong></td><td><strong>${n(totals.associations)} association(s)</strong></td></tr></tbody></table>`;
+    document.getElementById('associationReportTable').innerHTML=`<table><thead><tr><th>Association</th><th>Responsable</th><th>Sigle</th><th>Domaine</th><th>Localité</th><th>Membres</th></tr></thead><tbody>${assoc.map(a=>`<tr><td>${FCK.esc(a.name||'—')}</td><td>${FCK.esc(a.responsible_name||'—')}</td><td>${FCK.esc(a.acronym||'—')}</td><td>${FCK.esc(a.activity_area||'—')}</td><td>${FCK.esc(a.locality||'—')}</td><td>${n(a.members)}</td></tr>`).join('')||'<tr><td colspan="6">Aucune association enregistrée.</td></tr>'}<tr><td colspan="5"><strong>TOTAL ASSOCIATIONS : ${n(totals.associations)}</strong></td><td><strong>${n(totals.association_members)}</strong></td></tr></tbody></table>`;
     const canPrint=data.user.role==='superadmin'||data.user.role==='admin'||data.access?.can_print!==false;
-    document.getElementById('reportAction').innerHTML=canPrint?'<button id="printReport" class="btn btn-outline">🖨 Imprimer le rapport</button>':'';
+    document.getElementById('reportAction').innerHTML=canPrint?'<button id="printReport" class="btn btn-outline">🖨 Imprimer PDF</button>':'';
     document.getElementById('printReport')?.addEventListener('click',()=>{
-      const old=document.title;document.title='Rapport — LA FONDATION CK';document.body.classList.add('printing-list');
-      const clean=()=>{document.body.classList.remove('printing-list');document.title=old;window.removeEventListener('afterprint',clean)};
-      window.addEventListener('afterprint',clean);window.print();setTimeout(clean,1500);
+      const wrap=document.createElement('div');
+      wrap.innerHTML=`<h3>Indicateurs généraux</h3>${document.getElementById('reportStats').outerHTML}<h3 style="margin-top:14px">Résumé par secteur</h3>${document.getElementById('reportTable').innerHTML}<h3 style="margin-top:14px">Résumé des associations</h3>${document.getElementById('associationReportTable').innerHTML}`;
+      FCK.printProfessional({title:'Rapport général',subtitle:'Synthèse consolidée des activités et bénéficiaires',source:wrap,orientation:'landscape'});
     });
   }
   document.addEventListener('fck:ready',e=>{data=e.detail;if(data)render()});

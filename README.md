@@ -1,21 +1,48 @@
-# LA FONDATION CK — V2.5 corrigée complète
+# LA FONDATION CK — V2.7 corrigée complète
 
 Projet complet **GitHub + Cloudflare Pages + D1 + KV**.
 
-## Nouveautés V2.5
+## Nouveautés V2.7
 
-- Nouveau menu **Associations** avec page dédiée.
-- Ajout d’associations avec formulaire complet : nom, sigle, domaine, date de création, numéro d’enregistrement, siège, secteur, localité, village, téléphone, e-mail, description et statut.
-- Pour chaque association : **liste des membres** et **liste des responsables**, avec ajout, modification, suppression et impression selon les droits du compte.
-- La page **Rapport** intègre maintenant Associations, Membres d’associations et Responsables d’associations.
-- **Visiteur** : dans Paramètre, accès uniquement à **Mon compte**.
-- **Agent** : dans Paramètre, accès uniquement à **Mon compte** et **Support technique**.
-- **Sous-administrateur** : dans Paramètre, accès uniquement à **Mon compte** et **Support technique**.
-- **Administrateur principal** : accès à toutes les pages et à toute la gestion Paramètre, sauf l’espace Super Admin.
-- Un seul **Administrateur principal** peut exister ; son titre est attribué uniquement par le Super Admin.
-- Les Visiteurs, Agents et Sous-administrateurs utilisent automatiquement **l’abonnement actif de l’Administrateur principal**. Ils n’ont plus de plan autonome à gérer.
-- Le Super Admin ne peut activer un plan que sur l’Administrateur principal ; les autres comptes héritent automatiquement de ce plan.
-- Les contrôles de droits sont appliqués côté serveur, pas uniquement dans l’interface.
+### Associations
+
+- Tableau **Liste des associations** simplifié.
+- Colonnes supprimées : **Village**, **Membres**, **Statut**.
+- Ajout de la colonne **Responsable**.
+- Le formulaire **Ajouter / Modifier une association** contient maintenant le champ obligatoire **Nom du responsable**.
+- Le responsable principal est automatiquement inscrit comme **première ligne de la liste des membres**.
+- Si le nom du responsable est modifié depuis la fiche Association, la première ligne de la liste des membres est mise à jour automatiquement.
+- La ligne du responsable principal est protégée : elle ne se modifie et ne se supprime pas directement depuis la liste des membres.
+- La section séparée **Responsables / Liste des responsables de l’association** a été supprimée de l’interface et de l’API de gestion.
+
+### Liste des membres
+
+Le tableau affiche désormais uniquement :
+
+```text
+Nom
+Sexe
+Contact
+Village
+Activité
+Actions
+```
+
+Les colonnes **Localité**, **Adhésion** et **Statut** ont été retirées du tableau. Les champs restent disponibles dans le formulaire de membre afin de conserver les informations en base.
+
+### Impression PDF
+
+Les impressions des listes et du Rapport utilisent maintenant une présentation professionnelle :
+
+- A4 paysage ;
+- logo et identité de LA FONDATION CK ;
+- titre clair du document ;
+- date et heure d’édition ;
+- tableaux professionnels avec en-têtes verts et alternance des lignes ;
+- suppression automatique de la colonne Actions à l’impression ;
+- pied de page avec téléphone et e-mail de la Fondation.
+
+Le bouton ouvre la boîte d’impression du navigateur, où l’utilisateur peut choisir **Enregistrer au format PDF**.
 
 ## Rôles
 
@@ -71,29 +98,30 @@ SUPERADMIN_PASSWORD
 
 Le mot de passe Super Admin n’est jamais publié dans le dépôt.
 
-## D1
+## D1 — migration V2.7
 
-La V2.5 ajoute la migration :
+La V2.7 ajoute :
 
 ```text
-migrations/0004_associations.sql
+migrations/0005_association_responsable_principal.sql
 ```
 
-Sur une base existante, le Worker crée automatiquement les tables Associations au premier appel API. Il n’est donc pas nécessaire de supprimer D1.
+Elle ajoute :
+
+```text
+associations.responsible_name
+association_members.is_primary_responsible
+```
+
+Sur votre base existante, le Worker applique aussi cette mise à niveau automatiquement au premier appel API. **Ne supprimez pas D1.**
+
+Les anciennes données de `association_responsibles` sont conservées pour compatibilité et peuvent servir à initialiser automatiquement le responsable principal des associations existantes. La section séparée n’est plus utilisée dans l’application.
 
 Pour appliquer les migrations manuellement :
 
 ```bash
 npm install
 npm run db:migrate:remote
-```
-
-Tables ajoutées :
-
-```text
-associations
-association_members
-association_responsibles
 ```
 
 ## Sécurité
@@ -110,14 +138,10 @@ association_responsibles
 - Journal des actions sensibles dans D1.
 - PBKDF2 limité à 100000 itérations pour compatibilité Cloudflare.
 
-## Mise à jour depuis V2.4
+## Mise à jour depuis V2.6
 
 1. Remplacez tout le contenu du dépôt GitHub par le contenu de ce ZIP.
 2. Laissez Cloudflare redéployer la branche `main`.
-3. Ne supprimez ni D1, ni KV, ni les secrets existants.
+3. **Ne supprimez ni D1, ni KV, ni les secrets existants.**
 4. Ouvrez le site puis faites `Ctrl + F5`.
-5. La migration Associations est exécutée automatiquement.
-
-
-## Version 2.6
-Diaporama global à 5 photos optimisées, affichage pleine largeur, tableaux sans débordement et bouton Afficher/Masquer sur tous les champs de mot de passe. Aucune migration D1 supplémentaire n’est nécessaire.
+5. Au premier appel API, la migration V2.7 est appliquée automatiquement.

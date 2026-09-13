@@ -205,6 +205,7 @@ CREATE TABLE IF NOT EXISTS associations (
   organization_id TEXT NOT NULL,
   sector_id TEXT,
   name TEXT NOT NULL,
+  responsible_name TEXT DEFAULT '',
   acronym TEXT DEFAULT '',
   activity_area TEXT DEFAULT '',
   creation_date TEXT DEFAULT '',
@@ -235,6 +236,7 @@ CREATE TABLE IF NOT EXISTS association_members (
   occupation TEXT DEFAULT '',
   joined_at TEXT DEFAULT '',
   status_label TEXT DEFAULT 'Actif',
+  is_primary_responsible INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
@@ -259,4 +261,5 @@ CREATE TABLE IF NOT EXISTS association_responsibles (
 
 CREATE INDEX IF NOT EXISTS idx_associations_org ON associations(organization_id);
 CREATE INDEX IF NOT EXISTS idx_assoc_members_org_assoc ON association_members(organization_id, association_id);
+CREATE INDEX IF NOT EXISTS idx_assoc_members_primary ON association_members(organization_id, association_id, is_primary_responsible DESC);
 CREATE INDEX IF NOT EXISTS idx_assoc_resp_org_assoc ON association_responsibles(organization_id, association_id);
