@@ -1,8 +1,8 @@
-# LA FONDATION CK — V2.2 corrigée complète
+# LA FONDATION CK — V2.3 corrigée complète
 
 Projet complet pour **GitHub + Cloudflare Pages + D1 + KV**.
 
-## Mise à jour V2.2 — rapidité, footer et rôles
+## Mise à jour V2.3 — rapidité, footer et rôles
 
 Cette version ajoute :
 - chargement ciblé par page (`/api/load?scope=...`) pour éviter de charger toutes les listes à chaque navigation ;
@@ -17,7 +17,7 @@ Cette version ajoute :
 - Sous-administrateur : accès complet comme un Administrateur ;
 - bouton **Support technique** dans Paramètre ouvrant WhatsApp vers MEGA SERVICES SARL U (`+225 07 77 04 17 90`).
 
-Aucune suppression des tables D1 existantes n'est requise pour passer de V2.1 à V2.2.
+Aucune suppression des tables D1 existantes n'est requise pour passer de V2.1 à V2.3.
 
 
 ## Correctif principal V2 : Super Admin
@@ -124,3 +124,14 @@ Cloudflare Pages/Workers refuse dans cet environnement les appels PBKDF2 dépass
 La V2.1 fixe donc `PBKDF2_ITERATIONS` à **100000** côté serveur dans `public/_worker.js`.
 La vérification rejette proprement tout ancien hash demandant plus de 100000 itérations au lieu de provoquer une erreur 500.
 Lorsqu'il s'agit du Super Admin et que les secrets Cloudflare correspondent, le hash est automatiquement régénéré à 100000 itérations.
+
+
+## V2.3 — Secteur, Localité et Village
+
+- Le formulaire **Ajouter un secteur** contient maintenant le champ **Village**.
+- Le tableau Secteurs affiche **Secteur / Localité / Village**.
+- Le formulaire **Ajouter un responsable** utilise une sélection dépendante : **Secteur → Localité → Village**.
+- Après le choix d'un secteur, seules ses localités sont proposées ; après le choix de la localité, seuls les villages correspondants sont proposés.
+- La Localité et le Village choisis sont enregistrés côté serveur avec le responsable.
+- Les bases D1 existantes reçoivent automatiquement les nouvelles colonnes sans suppression des données.
+- Les textes demandés concernant la protection des abonnements et la durée du plan Free sur l'écran de création de compte ont été retirés de l'interface.

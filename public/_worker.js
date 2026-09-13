@@ -15,6 +15,7 @@ export default {
       const url = new URL(request.url);
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
         await ensureRuntimeSecurityMigration(env);
+        await ensureHierarchyVillageMigration(env);
         await ensureSuperAdmin(env, request);
         return await handleApi(request, env, ctx, url);
       }
@@ -76,6 +77,30 @@ async function ensureRuntimeSecurityMigration(env) {
   } catch (e) {
     // Les migrations D1 peuvent ne pas encore être appliquées pendant le tout premier déploiement.
     console.warn('Legacy hash migration skipped:', e?.message || e);
+  }
+}
+
+
+async function ensureHierarchyVillageMigration(env) {
+  // V2.3 : ajoute sans intervention manuelle les colonnes nécessaires à la
+  // hiérarchie Secteur > Localité > Village sur une base D1 déjà existante.
+  const key = 'migration:hierarchy-village:v1';
+  try { if (await env.FONDATIONCK_KV.get(key)) return; } catch {}
+  const ensureColumn = async (table, column, ddl) => {
+    const info = await env.FONDATIONCK_DB.prepare(`PRAGMA table_info(${table})`).all();
+    if ((info.results || []).some(c => c.name === column)) return;
+    try { await env.FONDATIONCK_DB.prepare(ddl).run(); }
+    catch (e) {
+      // Deux requêtes concurrentes peuvent tenter la même migration.
+      if (!/duplicate column name/i.test(String(e?.message || e))) throw e;
+    }
+  };
+  try {
+    await ensureColumn('sectors', 'village', `ALTER TABLE sectors ADD COLUMN village TEXT DEFAULT ''`);
+    await ensureColumn('responsibles', 'village', `ALTER TABLE responsibles ADD COLUMN village TEXT DEFAULT ''`);
+    await env.FONDATIONCK_KV.put(key, '1');
+  } catch (e) {
+    console.warn('Hierarchy village migration pending:', e?.message || e);
   }
 }
 
@@ -403,17 +428,17 @@ async function loadData(env, session, url) {
   const jobs = [];
   const assign = [];
   const add = (name, promise) => { assign.push(name); jobs.push(promise); };
-  if (scope === 'sectors' && access.sectors) add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+  if (scope === 'sectors' && access.sectors) add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
   if (scope === 'responsibles' && access.responsibles) {
-    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('responsibles', env.FONDATIONCK_DB.prepare(`SELECT r.*, s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.full_name`).bind(orgId).all());
   }
   if (scope === 'girls' && access.girls) {
-    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*, s.name AS sector_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
   }
   if (scope === 'boys' && access.boys) {
-    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name').bind(orgId).all());
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*, s.name AS sector_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
   }
   if (scope === 'settings' && ['admin','superadmin'].includes(user.role)) {
@@ -568,24 +593,30 @@ async function superAdminApi(request, env, session, url) {
 async function addSector(env, orgId, b) {
   const id = crypto.randomUUID();
   const name = clean(b.name, 140); if (!name) throw bad('Nom du secteur requis.');
-  await env.FONDATIONCK_DB.prepare('INSERT INTO sectors (id,organization_id,name,locality,description) VALUES (?,?,?,?,?)').bind(id, orgId, name, clean(b.locality,140), clean(b.description,1000)).run();
+  await env.FONDATIONCK_DB.prepare('INSERT INTO sectors (id,organization_id,name,locality,village,description) VALUES (?,?,?,?,?,?)').bind(id, orgId, name, clean(b.locality,140), clean(b.village,140), clean(b.description,1000)).run();
   return { target_type:'sector', target_id:id };
 }
 async function updateSector(env, orgId, b) {
   const id=clean(b.id,80), name=clean(b.name,140); if(!id||!name) throw bad('Données incomplètes.');
-  const r=await env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,description=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,clean(b.locality,140),clean(b.description,1000),id,orgId).run();
+  const r=await env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village=?,description=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,clean(b.locality,140),clean(b.village,140),clean(b.description,1000),id,orgId).run();
   ensureChanged(r); return { target_type:'sector', target_id:id };
 }
 async function addResponsible(env, orgId, b) {
   const id=crypto.randomUUID(), full=clean(b.full_name,140); if(!full) throw bad('Nom requis.');
-  const sectorId = await validSector(env, orgId, b.sector_id);
-  await env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality) VALUES (?,?,?,?,?,?,?,?)`).bind(id,orgId,sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),clean(b.locality,140)).run();
+  const sector = await sectorContext(env, orgId, b.sector_id);
+  const sectorId = sector?.id || null;
+  const locality = sector ? clean(sector.locality,140) : clean(b.locality,140);
+  const village = sector ? clean(sector.village,140) : clean(b.village,140);
+  await env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village) VALUES (?,?,?,?,?,?,?,?,?)`).bind(id,orgId,sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),locality,village).run();
   return { target_type:'responsible', target_id:id };
 }
 async function updateResponsible(env, orgId, b) {
   const id=clean(b.id,80), full=clean(b.full_name,140); if(!id||!full) throw bad('Données incomplètes.');
-  const sectorId = await validSector(env, orgId, b.sector_id);
-  const r=await env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET sector_id=?,full_name=?,function_title=?,phone=?,email=?,locality=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),clean(b.locality,140),id,orgId).run(); ensureChanged(r);
+  const sector = await sectorContext(env, orgId, b.sector_id);
+  const sectorId = sector?.id || null;
+  const locality = sector ? clean(sector.locality,140) : clean(b.locality,140);
+  const village = sector ? clean(sector.village,140) : clean(b.village,140);
+  const r=await env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET sector_id=?,full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),locality,village,id,orgId).run(); ensureChanged(r);
   return { target_type:'responsible', target_id:id };
 }
 async function addYoung(env, table, orgId, b) {
@@ -737,9 +768,15 @@ async function verifyAdminApproval(env, agentUser, password, request) {
   return {ok:false,status:403,error:'Mot de passe Administrateur incorrect.'};
 }
 
-async function validSector(env,orgId,raw){
+async function sectorContext(env,orgId,raw){
   const id=clean(raw,80); if(!id) return null;
-  const row=await env.FONDATIONCK_DB.prepare('SELECT id FROM sectors WHERE id=? AND organization_id=?').bind(id,orgId).first(); if(!row) throw bad('Secteur invalide.'); return id;
+  const row=await env.FONDATIONCK_DB.prepare('SELECT id,name,locality,village FROM sectors WHERE id=? AND organization_id=?').bind(id,orgId).first();
+  if(!row) throw bad('Secteur, localité ou village invalide.');
+  return row;
+}
+async function validSector(env,orgId,raw){
+  const row=await sectorContext(env,orgId,raw);
+  return row?.id || null;
 }
 async function setPassword(env,userId,password,mustChange){
   const hash=await hashPassword(password);

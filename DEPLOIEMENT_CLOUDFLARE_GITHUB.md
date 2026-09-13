@@ -1,4 +1,4 @@
-# Déploiement exact — LA FONDATION CK V2.2
+# Déploiement exact — LA FONDATION CK V2.3
 
 ## 1. GitHub
 
@@ -119,3 +119,13 @@ Aucune suppression manuelle de D1 n'est nécessaire.
 3. Aucune nouvelle liaison Cloudflare n'est nécessaire.
 4. La migration `0003_contact_fondation.sql` est facultative pour une base existante : le code applique déjà les coordonnées comme valeurs de secours. Pour les enregistrer dans D1, lancez `npm run db:migrate:remote`.
 5. Videz le cache du navigateur avec `Ctrl + F5` si une ancienne version du JavaScript reste affichée pendant quelques minutes.
+
+
+## Après mise à jour V2.3
+
+1. Remplacez le contenu du dépôt GitHub par celui de ce ZIP et laissez Cloudflare redéployer la branche `main`.
+2. Aucune suppression de D1 ou KV n'est nécessaire.
+3. Les colonnes `village` de `sectors` et `responsibles` sont ajoutées automatiquement au premier appel API par le Worker.
+4. Aucune migration D1 manuelle n'est requise pour V2.3 : le Worker vérifie le schéma et ajoute les colonnes manquantes de façon non destructive.
+5. Après le déploiement, faites `Ctrl + F5` dans le navigateur pour charger le nouveau JavaScript.
+6. Dans « Ajouter secteur », renseignez Secteur, Localité et Village. Dans « Ajouter responsable », le choix se fait ensuite dans l'ordre Secteur → Localité → Village.

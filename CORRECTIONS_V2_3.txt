@@ -1,0 +1,23 @@
+LA FONDATION CK — CORRECTIONS V2.3
+
+1. Paramètre
+- Suppression du texte : « Les statuts d’abonnement sont protégés côté serveur et ne peuvent être modifiés que par le Super Admin. »
+
+2. Création de compte
+- Suppression du texte : « Le plan Free est actif pendant 10 jours. »
+
+3. Secteurs
+- Ajout du champ Village dans le popup Ajouter/Modifier un secteur.
+- Ajout de la colonne Village dans le tableau.
+
+4. Responsables
+- Ajout du champ Village.
+- Secteur : liste déroulante.
+- Après sélection du Secteur : Localité devient une liste déroulante filtrée.
+- Après sélection de la Localité : Village devient une liste déroulante filtrée.
+- La combinaison Secteur / Localité / Village est contrôlée avant enregistrement.
+- Localité et Village sont contrôlés et enregistrés côté serveur à partir du secteur sélectionné.
+
+5. D1
+- Ajout automatique et non destructif des colonnes village sur les bases existantes.
+- Aucune migration manuelle nécessaire : le Worker ajoute automatiquement les colonnes manquantes.
