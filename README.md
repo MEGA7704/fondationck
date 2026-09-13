@@ -117,3 +117,7 @@ association_responsibles
 3. Ne supprimez ni D1, ni KV, ni les secrets existants.
 4. Ouvrez le site puis faites `Ctrl + F5`.
 5. La migration Associations est exécutée automatiquement.
+
+
+## Version 2.6
+Diaporama global à 5 photos optimisées, affichage pleine largeur, tableaux sans débordement et bouton Afficher/Masquer sur tous les champs de mot de passe. Aucune migration D1 supplémentaire n’est nécessaire.

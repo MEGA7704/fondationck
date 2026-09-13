@@ -1,0 +1,10 @@
+LA FONDATION CK — CORRECTIONS V2.6
+
+- Ajout des 3 nouvelles photos fournies au diaporama d’arrière-plan existant : 5 photos au total.
+- Photos converties en WebP optimisé afin de limiter l’impact sur la vitesse de chargement.
+- Diaporama appliqué automatiquement à toutes les pages du programme.
+- Mise en page étendue à presque toute la largeur de l’écran sur ordinateur, tablette et mobile.
+- Tableaux harmonisés : largeur 100 %, colonnes distribuées, lignes/colonnes centrées, textes ajustés et actions repliables sans débordement horizontal.
+- Sections et textes sécurisés contre les débordements.
+- Bouton Afficher / Masquer ajouté automatiquement à tous les champs de mot de passe, y compris les champs créés dans les popups après chargement de la page.
+- Aucun changement de structure D1/KV requis pour cette version.

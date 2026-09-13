@@ -24,6 +24,7 @@
     const wrap = document.createElement('div'); wrap.className='modal-backdrop open';
     wrap.innerHTML = `<div class="modal ${large?'modal-lg':''}"><div class="modal-head"><h2>${esc(title||'')}</h2><button class="close-x" type="button" aria-label="Fermer">×</button></div><div class="modal-body">${html||''}</div></div>`;
     document.body.appendChild(wrap);
+    enhancePasswordFields(wrap);
     const close = () => wrap.remove();
     wrap.querySelector('.close-x').addEventListener('click', close);
     wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
@@ -137,6 +138,61 @@
     return true;
   }
   async function save(action, payload={}){ return api('/api/save',{method:'POST',body:JSON.stringify({action,...payload})}); }
+  function initBackgroundSlideshow(){
+    if(document.querySelector('.fck-bg-slideshow')) return;
+    const images=[
+      '/assets/fondation-bg-1.webp',
+      '/assets/fondation-bg-2.webp',
+      '/assets/fondation-bg-3.webp',
+      '/assets/fondation-bg-4.webp',
+      '/assets/fondation-bg-5.webp'
+    ];
+    const layer=document.createElement('div');
+    layer.className='fck-bg-slideshow';
+    layer.setAttribute('aria-hidden','true');
+    layer.innerHTML=images.map((src,i)=>`<img class="fck-bg-slide" src="${src}" alt="" decoding="async" ${i===0?'fetchpriority="high"':'loading="lazy"'}>`).join('');
+    document.body.prepend(layer);
+  }
+  function enhancePasswordFields(root=document){
+    const inputs=root.querySelectorAll ? root.querySelectorAll('input[type="password"]') : [];
+    inputs.forEach(input=>{
+      if(input.dataset.passwordToggleReady==='1' || input.closest('.password-field')) return;
+      input.dataset.passwordToggleReady='1';
+      const holder=document.createElement('div');
+      holder.className='password-field';
+      input.parentNode.insertBefore(holder,input);
+      holder.appendChild(input);
+      const toggle=document.createElement('button');
+      toggle.type='button';
+      toggle.className='password-toggle';
+      toggle.setAttribute('aria-label','Afficher le mot de passe');
+      toggle.setAttribute('aria-pressed','false');
+      toggle.textContent='Afficher';
+      holder.appendChild(toggle);
+      toggle.addEventListener('click',()=>{
+        const showing=input.type==='text';
+        input.type=showing?'password':'text';
+        toggle.textContent=showing?'Afficher':'Masquer';
+        toggle.setAttribute('aria-label',showing?'Afficher le mot de passe':'Masquer le mot de passe');
+        toggle.setAttribute('aria-pressed',showing?'false':'true');
+        input.focus({preventScroll:true});
+        try{input.setSelectionRange(input.value.length,input.value.length)}catch{}
+      });
+    });
+  }
+  function observePasswordFields(){
+    enhancePasswordFields(document);
+    const observer=new MutationObserver(mutations=>{
+      for(const mutation of mutations){
+        for(const node of mutation.addedNodes){
+          if(node.nodeType!==1) continue;
+          if(node.matches?.('input[type="password"]')) enhancePasswordFields(node.parentElement||document);
+          else enhancePasswordFields(node);
+        }
+      }
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+  }
   function footer(){
     const el=document.getElementById('siteFooter'); if(!el)return;
     el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><div class="footer-contact"><a href="tel:+2250757577542">${FOUNDATION_PHONE}</a><a href="mailto:${FOUNDATION_EMAIL}">${FOUNDATION_EMAIL}</a></div></div></div>`;
@@ -144,7 +200,9 @@
 
   window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, roleLabel, showLoginModal, showForgotModal, guardPage, subscriptionGate };
   document.addEventListener('DOMContentLoaded', async () => {
+    initBackgroundSlideshow();
     renderHeader(); footer();
+    observePasswordFields();
     try { await loadData(); } catch (e) { console.error(e); if(authRequired) toast(e.message || 'Erreur de chargement','error'); }
     document.dispatchEvent(new CustomEvent('fck:ready',{detail:state.data}));
   });
