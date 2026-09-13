@@ -2,9 +2,9 @@
   const key=document.body.dataset.page;
   const configs={
     sectors:{dataKey:'sectors',title:'secteur',plural:'Liste des secteurs',addLabel:'Ajouter un secteur',access:'sectors',columns:[['name','Secteur'],['locality','Localité']]},
-    responsibles:{dataKey:'responsibles',title:'responsable',plural:'Liste des responsables de secteur',addLabel:'Ajouter un responsable',access:'responsibles',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['locality','Localité'],['function_title','Fonction'],['phone','Téléphone'],['voting_place','Lieu de vote'],['email','E-mail']]},
-    girls:{dataKey:'girls',title:'jeune fille',plural:'Liste des jeunes filles',addLabel:'Ajouter une jeune fille',access:'girls',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['responsible_name','Responsable'],['phone','Contact'],['gender','Sexe'],['polling_station','Bureau de vote'],['voting_place','Lieu de vote'],['ally1_summary','Allié 1'],['ally2_summary','Allié 2']]},
-    boys:{dataKey:'boys',title:'jeune garçon',plural:'Liste des jeunes garçons',addLabel:'Ajouter un jeune garçon',access:'boys',columns:[['full_name','Nom complet'],['sector_name','Secteur'],['responsible_name','Responsable'],['phone','Contact'],['polling_station','Bureau de vote'],['voting_place','Lieu de vote']]}
+    responsibles:{dataKey:'responsibles',title:'responsable',plural:'Liste des responsables de secteur',addLabel:'Ajouter un responsable',access:'responsibles',columns:[['full_name','Nom complet'],['sector_locality','Secteur / Localité'],['function_title','Fonction'],['responsible_contact','Contact'],['voting_place','Lieu de vote']]},
+    girls:{dataKey:'girls',title:'jeune fille',plural:'Liste des jeunes filles',addLabel:'Ajouter une jeune fille',access:'girls',columns:[['full_name','Nom complet'],['sector_locality','Secteur / Localité'],['responsible_name','Responsable'],['girl_identity','Contact / Sexe'],['vote_summary','Vote'],['profile_summary','Naissance / Activité'],['ally1_summary','Allié 1'],['ally2_summary','Allié 2']]},
+    boys:{dataKey:'boys',title:'jeune garçon',plural:'Liste des jeunes garçons',addLabel:'Ajouter un jeune garçon',access:'boys',columns:[['full_name','Nom complet'],['sector_locality','Secteur / Localité'],['responsible_name','Responsable'],['phone','Contact'],['vote_summary','Vote'],['profile_summary','Naissance / Activité']]}
   };
   const cfg=configs[key]; let data=null, filtered=[];
   const isAdmin=()=>data&&['admin','superadmin'].includes(data.user.role);
@@ -28,6 +28,26 @@
   function applyFilter(){const q=(document.getElementById('tableSearch')?.value||'').toLowerCase().trim();const src=data[cfg.dataKey]||[];filtered=q?src.filter(r=>Object.values(r).some(v=>String(v??'').toLowerCase().includes(q))):src;renderTable()}
   function displayValue(r,k){
     if(k==='birth_date')return FCK.fmtDate(r[k]);
+    if(k==='sector_locality'){
+      const sector=clean(r.sector_name||r.name); const locality=clean(r.locality);
+      return [sector?`<strong>${FCK.esc(sector)}</strong>`:'',locality?`<span class="table-meta">${FCK.esc(locality)}</span>`:''].filter(Boolean).join('<br>')||'—';
+    }
+    if(k==='responsible_contact'){
+      const bits=[clean(r.phone)?`Tél. : ${clean(r.phone)}`:'',clean(r.email)?clean(r.email):''].filter(Boolean);
+      return bits.length?bits.map(FCK.esc).join('<br>'):'—';
+    }
+    if(k==='girl_identity'){
+      const bits=[clean(r.phone)?`Contact : ${clean(r.phone)}`:'',clean(r.gender)?clean(r.gender):''].filter(Boolean);
+      return bits.length?bits.map(FCK.esc).join('<br>'):'—';
+    }
+    if(k==='vote_summary'){
+      const bits=[clean(r.polling_station)?`Bureau : ${clean(r.polling_station)}`:'',clean(r.voting_place)?`Lieu : ${clean(r.voting_place)}`:''].filter(Boolean);
+      return bits.length?bits.map(FCK.esc).join('<br>'):'—';
+    }
+    if(k==='profile_summary'){
+      const bits=[clean(r.birth_date)?`Naissance : ${FCK.fmtDate(r.birth_date)}`:'',clean(r.occupation)?`Activité : ${clean(r.occupation)}`:''].filter(Boolean);
+      return bits.length?bits.map(FCK.esc).join('<br>'):'—';
+    }
     if(k==='ally1_summary'||k==='ally2_summary'){
       const n=k==='ally1_summary'?1:2; const name=clean(r[`ally${n}_name`]); if(!name)return '—';
       const bits=[name,clean(r[`ally${n}_phone`])?`Contact: ${clean(r[`ally${n}_phone`])}`:'',clean(r[`ally${n}_gender`]),clean(r[`ally${n}_polling_station`])?`Bureau: ${clean(r[`ally${n}_polling_station`])}`:'',clean(r[`ally${n}_voting_place`])?`Lieu: ${clean(r[`ally${n}_voting_place`])}`:''].filter(Boolean);

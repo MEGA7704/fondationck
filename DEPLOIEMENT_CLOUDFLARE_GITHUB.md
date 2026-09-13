@@ -77,3 +77,7 @@ Aucune action D1 manuelle n'est requise. Au premier appel API après déploiemen
 
 ### Mise à niveau V2.18
 Aucune migration D1 n’est requise. La V2.18 modifie le formulaire Jeunes garçons et renforce la cohérence Secteur / Localité côté serveur.
+
+
+### Mise à niveau V2.19
+Aucune migration D1 ou KV n’est requise. Cette version harmonise uniquement l’affichage des tableaux avec les formulaires d’ajout/modification et conserve les données existantes.

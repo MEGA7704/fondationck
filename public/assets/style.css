@@ -487,3 +487,10 @@ body::after{display:none!important}
 .sector-row-action{display:flex;align-items:flex-end;justify-content:center;padding-bottom:1px}
 .sector-add-line{display:flex;justify-content:flex-start;margin:8px 0 16px}
 @media(max-width:640px){.sector-entry-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:6px;padding:9px}.sector-entry-row .field label{font-size:.72rem}.sector-entry-row .input{font-size:.82rem;padding:9px 8px}.sector-row-action .btn{padding:8px 9px}.sector-add-line .btn{width:100%}}
+
+/* V2.19 — tableaux alignés sur les formulaires d’ajout */
+.table-meta{font-size:.78rem;line-height:1.25;color:var(--muted,#5d6b78);overflow-wrap:anywhere}
+.table-wrap td{vertical-align:middle}
+.table-wrap td strong{font-weight:750}
+.table-wrap td,.table-wrap th{overflow-wrap:anywhere;word-break:normal}
+@media(max-width:760px){.table-meta{font-size:.72rem}.table-wrap table{font-size:.72rem}.table-wrap th,.table-wrap td{padding:.5rem .42rem}}

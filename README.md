@@ -139,3 +139,15 @@ Le formulaire Jeunes filles sépare Secteur et Localité. La liste Localité dé
 - La combinaison Secteur / Localité est contrôlée avant enregistrement.
 - Le serveur recalcule la localité depuis le secteur sélectionné afin d’éviter une association incohérente.
 - Aucune migration D1 n’est nécessaire pour cette version.
+
+
+## V2.19 — Tableaux adaptés aux formulaires d’ajout
+- Secteurs : tableau recentré sur Secteur / Localité et responsables synchronisés, sans colonne Contact étrangère au formulaire Secteur.
+- Responsables : regroupement Secteur / Localité et Contact, tout en affichant toutes les données du formulaire.
+- Jeunes filles : le tableau reprend Secteur, Localité, contact/sexe, vote, naissance/activité et les deux alliés avec leurs contacts.
+- Jeunes garçons : le tableau reprend Secteur, Localité, contact, vote, naissance et activité/études.
+- Associations : toutes les informations du formulaire sont reprises dans des colonnes regroupées pour éviter les débordements.
+- Membres : Téléphone et E-mail sont regroupés dans Contact, en conservant les colonnes précédemment supprimées hors du tableau.
+- Utilisateurs : ajout de la colonne Téléphone ; le mot de passe reste volontairement jamais affiché.
+- Nouvelles du jour : ajout des aperçus Résumé et Contenu, avec statut de publication.
+Aucune migration D1 n’est requise.

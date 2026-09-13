@@ -47,12 +47,12 @@
     if(count)count.textContent=`${filtered.length} secteur${filtered.length>1?'s':''}`;
     const area=document.getElementById('tableArea');
     if(!filtered.length){area.innerHTML='<div class="empty-state">Aucun secteur enregistré.</div>';return;}
-    let html=`<table id="printableSectorTable"><thead><tr><th>Secteur</th><th>Localité</th><th>Resp. secteur</th><th>Resp. jeunes filles</th><th>Resp. jeunes garçons</th><th>Contact</th><th class="no-print">Actions</th></tr></thead><tbody>`;
+    let html=`<table id="printableSectorTable"><thead><tr><th>Secteur</th><th>Localité</th><th>Resp. secteur</th><th>Resp. jeunes filles</th><th>Resp. jeunes garçons</th><th class="no-print">Actions</th></tr></thead><tbody>`;
     html+=filtered.map(s=>{
       const r=principalFor(s.id);
       const rg=roleResponsibleFor(s.id,'Responsable des jeunes filles');
       const rb=roleResponsibleFor(s.id,'Responsable des jeunes garçons');
-      return `<tr><td>${FCK.esc(s.name||'—')}</td><td>${FCK.esc(s.locality||'—')}</td><td>${FCK.esc(r?.full_name||s.responsible_name||'—')}</td><td>${FCK.esc(rg?.full_name||s.girls_responsible_name||'—')}</td><td>${FCK.esc(rb?.full_name||s.boys_responsible_name||'—')}</td><td>${FCK.esc(r?.phone||s.responsible_phone||'—')}</td><td class="no-print"><div class="actions">${canEdit()?`<button class="btn btn-sm btn-ghost" data-edit="${s.id}">Modifier</button><button class="btn btn-sm btn-danger" data-delete="${s.id}">Supprimer</button>`:'—'}</div></td></tr>`;
+      return `<tr><td>${FCK.esc(s.name||'—')}</td><td>${FCK.esc(s.locality||'—')}</td><td>${FCK.esc(r?.full_name||s.responsible_name||'—')}</td><td>${FCK.esc(rg?.full_name||s.girls_responsible_name||'—')}</td><td>${FCK.esc(rb?.full_name||s.boys_responsible_name||'—')}</td><td class="no-print"><div class="actions">${canEdit()?`<button class="btn btn-sm btn-ghost" data-edit="${s.id}">Modifier</button><button class="btn btn-sm btn-danger" data-delete="${s.id}">Supprimer</button>`:'—'}</div></td></tr>`;
     }).join('');
     html+='</tbody></table>';
     area.innerHTML=html;
