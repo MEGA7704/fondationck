@@ -1,3 +1,7 @@
+## V2.12 — Carrousel Actualités dans le hero et arrière-plan mobile corrigé
+
+Voir `CORRECTIONS_V2_12.txt`.
+
 ## Correction V2.11
 
 Dans la Liste des secteurs, les colonnes de décompte « Jeunes filles » et « Jeunes garçons » ont été supprimées.
