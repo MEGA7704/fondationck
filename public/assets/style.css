@@ -142,3 +142,85 @@ table .badge{white-space:normal;text-align:center;justify-content:center;max-wid
   .fck-bg-slide{animation:none;opacity:0;transform:none}
   .fck-bg-slide:first-child{opacity:1}
 }
+
+
+/* V2.8 — colonnes Actions alignées, boutons sur une seule ligne, sans défilement horizontal */
+.table-wrap{overflow-x:hidden!important}
+table.fck-action-table{table-layout:fixed!important;width:100%!important;min-width:0!important}
+table.fck-action-table .action-col,
+table.fck-action-table .action-cell{
+  text-align:center!important;
+  vertical-align:middle!important;
+  white-space:nowrap!important;
+  overflow-wrap:normal!important;
+  word-break:keep-all!important;
+  hyphens:none!important;
+  padding-left:3px!important;
+  padding-right:3px!important;
+}
+table.fck-action-table .action-cell .actions,
+table.fck-action-table .action-cell .action-row{
+  display:flex!important;
+  flex-direction:row!important;
+  flex-wrap:nowrap!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:clamp(2px,.28vw,5px)!important;
+  width:100%!important;
+  max-width:100%!important;
+  white-space:nowrap!important;
+  overflow:visible!important;
+}
+table.fck-action-table .action-cell .btn,
+table.fck-action-table .action-cell button{
+  flex:1 1 0!important;
+  min-width:0!important;
+  max-width:none!important;
+  width:auto!important;
+  white-space:nowrap!important;
+  overflow:visible!important;
+  text-overflow:clip!important;
+  padding:5px clamp(2px,.34vw,6px)!important;
+  font-size:clamp(.52rem,.61vw,.74rem)!important;
+  line-height:1.05!important;
+  border-radius:8px!important;
+  letter-spacing:-.01em!important;
+}
+table.fck-action-table.action-count-1 .action-col,
+table.fck-action-table.action-count-1 .action-cell{width:13%!important}
+table.fck-action-table.action-count-2 .action-col,
+table.fck-action-table.action-count-2 .action-cell{width:20%!important}
+table.fck-action-table.action-count-3 .action-col,
+table.fck-action-table.action-count-3 .action-cell{width:29%!important}
+table.fck-action-table.action-count-4 .action-col,
+table.fck-action-table.action-count-4 .action-cell{width:35%!important}
+table.fck-action-table.action-count-5 .action-col,
+table.fck-action-table.action-count-5 .action-cell{width:41%!important}
+table.fck-action-table.action-count-6 .action-col,
+table.fck-action-table.action-count-6 .action-cell{width:46%!important}
+
+/* Les lignes restent parfaitement alignées entre elles et aucune cellule Actions ne revient à la ligne. */
+table.fck-action-table tbody tr{height:auto}
+table.fck-action-table .action-cell>.hint,
+table.fck-action-table .action-cell>.badge{white-space:nowrap!important;font-size:clamp(.54rem,.64vw,.76rem)!important}
+
+@media(max-width:900px){
+  table.fck-action-table .action-cell .btn,
+  table.fck-action-table .action-cell button{font-size:clamp(.46rem,1.05vw,.62rem)!important;padding:4px 2px!important;border-radius:6px!important}
+  table.fck-action-table.action-count-1 .action-col,table.fck-action-table.action-count-1 .action-cell{width:16%!important}
+  table.fck-action-table.action-count-2 .action-col,table.fck-action-table.action-count-2 .action-cell{width:24%!important}
+  table.fck-action-table.action-count-3 .action-col,table.fck-action-table.action-count-3 .action-cell{width:33%!important}
+  table.fck-action-table.action-count-4 .action-col,table.fck-action-table.action-count-4 .action-cell{width:40%!important}
+  table.fck-action-table.action-count-5 .action-col,table.fck-action-table.action-count-5 .action-cell{width:47%!important}
+  table.fck-action-table.action-count-6 .action-col,table.fck-action-table.action-count-6 .action-cell{width:53%!important}
+}
+@media(max-width:560px){
+  table.fck-action-table .action-cell .actions,table.fck-action-table .action-cell .action-row{gap:1px!important}
+  table.fck-action-table .action-cell .btn,table.fck-action-table .action-cell button{font-size:.43rem!important;padding:3px 1px!important;border-radius:5px!important}
+  table.fck-action-table.action-count-1 .action-col,table.fck-action-table.action-count-1 .action-cell{width:18%!important}
+  table.fck-action-table.action-count-2 .action-col,table.fck-action-table.action-count-2 .action-cell{width:28%!important}
+  table.fck-action-table.action-count-3 .action-col,table.fck-action-table.action-count-3 .action-cell{width:38%!important}
+  table.fck-action-table.action-count-4 .action-col,table.fck-action-table.action-count-4 .action-cell{width:46%!important}
+  table.fck-action-table.action-count-5 .action-col,table.fck-action-table.action-count-5 .action-cell{width:53%!important}
+  table.fck-action-table.action-count-6 .action-col,table.fck-action-table.action-count-6 .action-cell{width:58%!important}
+}

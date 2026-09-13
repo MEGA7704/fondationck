@@ -1,0 +1,11 @@
+LA FONDATION CK — V2.8
+
+Correction ciblée des tableaux :
+- Toutes les colonnes Action / Actions / Traitement sont détectées automatiquement, y compris les tableaux générés après chargement.
+- Tous les boutons d’une cellule Actions restent sur une seule ligne horizontale.
+- Aucun retour à la ligne des boutons.
+- Largeur de la colonne Actions ajustée automatiquement selon le nombre de boutons présents.
+- Les autres colonnes se redistribuent automatiquement pour conserver le tableau dans la largeur de la page.
+- Aucun défilement horizontal ajouté.
+- Adaptation spécifique ordinateur, tablette et téléphone.
+- Alignement vertical et horizontal uniforme de toutes les cellules Actions.

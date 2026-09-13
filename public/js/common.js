@@ -193,6 +193,49 @@
     });
     observer.observe(document.body,{childList:true,subtree:true});
   }
+  function enhanceActionTables(root=document){
+    const tables=[];
+    if(root?.matches?.('table')) tables.push(root);
+    if(root?.querySelectorAll) tables.push(...root.querySelectorAll('table'));
+    tables.forEach(table=>{
+      const headers=[...table.querySelectorAll('thead th')];
+      if(!headers.length) return;
+      const indexes=[];
+      headers.forEach((th,index)=>{
+        const label=(th.textContent||'').trim().toLowerCase();
+        if(label==='action'||label==='actions'||label==='traitement') indexes.push(index);
+      });
+      if(!indexes.length) return;
+      table.classList.add('fck-action-table');
+      let maxButtons=1;
+      indexes.forEach(index=>{
+        headers[index]?.classList.add('action-col');
+        table.querySelectorAll('tbody tr').forEach(tr=>{
+          const cell=tr.children[index];
+          if(!cell) return;
+          cell.classList.add('action-cell');
+          const group=cell.querySelector('.actions');
+          if(group) group.classList.add('action-row');
+          const count=cell.querySelectorAll('button,.btn').length;
+          if(count>maxButtons) maxButtons=count;
+        });
+      });
+      [...table.classList].filter(c=>/^action-count-/.test(c)).forEach(c=>table.classList.remove(c));
+      table.classList.add(`action-count-${Math.min(Math.max(maxButtons,1),6)}`);
+    });
+  }
+  function observeActionTables(){
+    enhanceActionTables(document);
+    const observer=new MutationObserver(mutations=>{
+      for(const mutation of mutations){
+        for(const node of mutation.addedNodes){
+          if(node.nodeType!==1) continue;
+          enhanceActionTables(node);
+        }
+      }
+    });
+    observer.observe(document.body,{childList:true,subtree:true});
+  }
   function printProfessional({title='Document', subtitle='', source=null, orientation='landscape'}={}) {
     if(!source)return;
     const clone=source.cloneNode(true);
@@ -250,6 +293,7 @@
     initBackgroundSlideshow();
     renderHeader(); footer();
     observePasswordFields();
+    observeActionTables();
     try { await loadData(); } catch (e) { console.error(e); if(authRequired) toast(e.message || 'Erreur de chargement','error'); }
     document.dispatchEvent(new CustomEvent('fck:ready',{detail:state.data}));
   });

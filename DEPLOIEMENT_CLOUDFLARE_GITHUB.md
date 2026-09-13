@@ -1,4 +1,4 @@
-# Déploiement exact — LA FONDATION CK V2.7
+# Déploiement exact — LA FONDATION CK V2.8
 
 ## 1. GitHub
 
@@ -45,7 +45,7 @@ Ne publiez jamais le mot de passe dans GitHub.
 
 ## 5. D1
 
-Ne supprimez pas la base existante. La V2.7 met automatiquement à niveau les Associations et le responsable principal au premier appel API.
+Ne supprimez pas la base existante. La V2.8 met automatiquement à niveau les Associations et le responsable principal au premier appel API.
 
 Pour forcer les migrations :
 

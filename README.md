@@ -1,8 +1,8 @@
-# LA FONDATION CK — V2.7 corrigée complète
+# LA FONDATION CK — V2.8 corrigée complète
 
 Projet complet **GitHub + Cloudflare Pages + D1 + KV**.
 
-## Nouveautés V2.7
+## Nouveautés V2.8
 
 ### Associations
 
@@ -98,9 +98,9 @@ SUPERADMIN_PASSWORD
 
 Le mot de passe Super Admin n’est jamais publié dans le dépôt.
 
-## D1 — migration V2.7
+## D1 — migration V2.8
 
-La V2.7 ajoute :
+La V2.8 ajoute :
 
 ```text
 migrations/0005_association_responsable_principal.sql
@@ -144,4 +144,4 @@ npm run db:migrate:remote
 2. Laissez Cloudflare redéployer la branche `main`.
 3. **Ne supprimez ni D1, ni KV, ni les secrets existants.**
 4. Ouvrez le site puis faites `Ctrl + F5`.
-5. Au premier appel API, la migration V2.7 est appliquée automatiquement.
+5. Au premier appel API, la migration V2.8 est appliquée automatiquement.
