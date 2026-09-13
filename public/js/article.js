@@ -1,0 +1,4 @@
+(async()=>{
+  async function init(){const id=new URLSearchParams(location.search).get('id'),el=document.getElementById('article');if(!id){el.innerHTML='<div class="empty-state">Actualité introuvable.</div>';return;}try{const r=await fetch('/api/news-detail?id='+encodeURIComponent(id));const d=await r.json();if(!r.ok)throw new Error(d.error||'Introuvable');const n=d.item;document.title=n.title+' — LA FONDATION CK';el.innerHTML=`${n.image_url?`<div class="article-cover"><img src="${n.image_url}" alt="${FCK.esc(n.title)}"></div>`:''}<div class="eyebrow">Actualité · ${FCK.fmtDate(n.published_at)}</div><h1>${FCK.esc(n.title)}</h1>${n.summary?`<div class="alert alert-info">${FCK.esc(n.summary)}</div>`:''}<div class="article-content">${FCK.esc(n.content)}</div>`;}catch(e){el.innerHTML=`<div class="empty-state">${FCK.esc(e.message)}</div>`}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();

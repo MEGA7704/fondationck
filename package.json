@@ -1,0 +1,14 @@
+{
+  "name": "la-fondation-ck",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler pages dev public --d1=FONDATIONCK_DB --kv=FONDATIONCK_KV",
+    "deploy": "wrangler pages deploy public --project-name=la-fondation-ck",
+    "db:migrate:remote": "wrangler d1 migrations apply fondationck-d1 --remote",
+    "db:migrate:local": "wrangler d1 migrations apply fondationck-d1 --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

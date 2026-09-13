@@ -1,0 +1,116 @@
+(() => {
+  const state = { data: null, csrf: '', user: null, loadPromise: null };
+  const page = document.body.dataset.page || 'home';
+  const authRequired = document.body.dataset.auth === 'required';
+
+  function esc(v='') { return String(v).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+  function fmtDate(v) { if (!v) return '—'; const d = new Date(v); return Number.isNaN(d.getTime()) ? esc(v) : d.toLocaleDateString('fr-FR'); }
+  function money(v) { return new Intl.NumberFormat('fr-FR').format(Number(v || 0)) + ' F'; }
+  function toast(message, type='ok') {
+    let stack = document.querySelector('.toast-stack');
+    if (!stack) { stack = document.createElement('div'); stack.className = 'toast-stack'; document.body.appendChild(stack); }
+    const el = document.createElement('div'); el.className = 'toast'; el.textContent = message; stack.appendChild(el);
+    setTimeout(() => el.remove(), 4200);
+  }
+  function modal({title, html, large=false, onReady}={}) {
+    const wrap = document.createElement('div'); wrap.className='modal-backdrop open';
+    wrap.innerHTML = `<div class="modal ${large?'modal-lg':''}"><div class="modal-head"><h2>${esc(title||'')}</h2><button class="close-x" type="button" aria-label="Fermer">×</button></div><div class="modal-body">${html||''}</div></div>`;
+    document.body.appendChild(wrap);
+    const close = () => wrap.remove();
+    wrap.querySelector('.close-x').addEventListener('click', close);
+    wrap.addEventListener('click', e => { if (e.target === wrap) close(); });
+    if (onReady) onReady(wrap, close);
+    return {el:wrap, close};
+  }
+  async function api(url, options={}) {
+    const headers = new Headers(options.headers || {});
+    if (options.body && !(options.body instanceof FormData) && !headers.has('Content-Type')) headers.set('Content-Type','application/json');
+    if (options.method && options.method !== 'GET' && state.csrf) headers.set('X-CSRF-Token', state.csrf);
+    const res = await fetch(url, {...options, headers, credentials:'same-origin'});
+    let data = {}; try { data = await res.json(); } catch {}
+    if (!res.ok) { const err = new Error(data.error || `Erreur ${res.status}`); err.status=res.status; err.data=data; throw err; }
+    return data;
+  }
+  async function loadData(force=false) {
+    if (state.loadPromise && !force) return state.loadPromise;
+    state.loadPromise = (async () => {
+      try {
+        const data = await api('/api/load');
+        state.data = data; state.user = data.user; state.csrf = data.csrf_token || ''; renderHeader(); handleFreePlan(data); return data;
+      } catch (e) {
+        if (e.status === 401) { state.data=null; state.user=null; state.csrf=''; renderHeader(); if (authRequired) location.href='/connexion.html?next='+encodeURIComponent(location.pathname+location.search); return null; }
+        throw e;
+      }
+    })();
+    try { return await state.loadPromise; } finally { state.loadPromise = null; }
+  }
+  function renderHeader() {
+    const header = document.getElementById('siteHeader'); if (!header) return;
+    const u = state.user; const access = state.data?.access || {};
+    const publicNav = `<a class="nav-link ${page==='home'?'active':''}" href="/index.html">Accueil</a><a class="nav-link ${page==='contact'?'active':''}" href="/contact.html">Contacts</a>`;
+    let privateNav = `<a class="nav-link ${page==='home'?'active':''}" href="/index.html">Accueil</a>`;
+    if (u?.role === 'superadmin') privateNav += `<a class="nav-link ${page==='superadmin'?'active':''}" href="/superadmin.html">Super Admin</a>`;
+    else if (u) {
+      if (access.sectors) privateNav += `<a class="nav-link ${page==='sectors'?'active':''}" href="/secteurs.html">Secteur</a>`;
+      if (access.responsibles) privateNav += `<a class="nav-link ${page==='responsibles'?'active':''}" href="/responsables.html">Responsables</a>`;
+      if (access.girls) privateNav += `<a class="nav-link ${page==='girls'?'active':''}" href="/jeunes-filles.html">Jeunes filles</a>`;
+      if (access.boys) privateNav += `<a class="nav-link ${page==='boys'?'active':''}" href="/jeunes-garcons.html">Jeunes garçons</a>`;
+      privateNav += `<a class="nav-link ${page==='settings'?'active':''}" href="/parametres.html">Paramètre</a>`;
+    }
+    header.innerHTML = `<div class="header-inner">
+      <a class="brand" href="/index.html"><img src="/assets/logo-fondation-ck.png" alt="Logo LA FONDATION CK"><span class="brand-copy"><strong>LA FONDATION CK</strong><small>Charité · Cohésion · Développement</small></span></a>
+      <button id="mobileNav" class="mobile-toggle" type="button" aria-label="Menu">☰</button>
+      <nav id="mainNav" class="main-nav">${u?privateNav:publicNav}</nav>
+      <div class="header-actions">${u ? `<span class="badge badge-green hide-tablet">${esc(u.full_name)}</span><button id="logoutBtn" class="btn btn-ghost"><span class="label">Déconnexion</span> ↗</button>` : `<button id="loginBtn" class="btn btn-ghost"><span class="label">Connexion</span> 🔐</button><a class="btn btn-orange" href="/inscription.html"><span class="label">Créer un compte</span> ＋</a>`}</div>
+    </div>`;
+    header.querySelector('#mobileNav')?.addEventListener('click', () => header.querySelector('#mainNav')?.classList.toggle('open'));
+    header.querySelector('#loginBtn')?.addEventListener('click', showLoginModal);
+    header.querySelector('#logoutBtn')?.addEventListener('click', async () => { try { await api('/api/logout',{method:'POST',body:'{}'}); } catch {} location.href='/index.html'; });
+  }
+  function showLoginModal() {
+    modal({title:'Connexion sécurisée', html:`<form id="quickLogin" class="form-grid">
+      <div class="field full"><label>Adresse e-mail</label><input class="input" type="email" name="email" autocomplete="username" required></div>
+      <div class="field full"><label>Mot de passe</label><input class="input" type="password" name="password" autocomplete="current-password" required></div>
+      <div class="field full"><button class="btn btn-primary" type="submit">Se connecter</button></div>
+      <div class="field full"><button id="forgotBtn" class="text-link" type="button">Mot de passe oublié ?</button></div>
+    </form>`, onReady:(wrap,close)=>{
+      wrap.querySelector('#forgotBtn').addEventListener('click', () => { close(); showForgotModal(); });
+      wrap.querySelector('#quickLogin').addEventListener('submit', async e => {
+        e.preventDefault(); const f=new FormData(e.currentTarget); const btn=e.currentTarget.querySelector('button[type=submit]'); btn.disabled=true;
+        try { const r=await api('/api/login',{method:'POST',body:JSON.stringify({email:f.get('email'),password:f.get('password')})}); sessionStorage.setItem('fckJustLoggedIn','1'); close(); location.href = r.user.role==='superadmin' ? '/superadmin.html' : '/index.html'; }
+        catch(err){ toast(err.message); btn.disabled=false; }
+      });
+    }});
+  }
+  function showForgotModal() {
+    modal({title:'Demande de réinitialisation',html:`<div class="alert alert-info">Un <strong>Administrateur</strong> est réinitialisé par le <strong>Super Admin</strong>. Un <strong>utilisateur</strong> est réinitialisé par son <strong>Administrateur</strong>.</div><form id="forgotForm" class="form-grid"><div class="field full"><label>Adresse e-mail du compte</label><input class="input" type="email" name="email" required></div><div class="field full"><button class="btn btn-primary" type="submit">Envoyer la demande</button></div></form>`,onReady:(wrap,close)=>{
+      wrap.querySelector('#forgotForm').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/password-reset-request',{method:'POST',body:JSON.stringify({email:f.get('email')})});toast(r.message);close();}catch(err){toast(err.message);}});
+    }});
+  }
+  function showFreePlanPopup() {
+    const d=state.data;if(!d||!state.user||state.user.role==='superadmin'||state.user.plan!=='free'||!d.subscription_active)return;
+    localStorage.setItem('fckFreeLastPrompt', String(Date.now()));
+    modal({title:'Passez à une formule payante',html:`<div style="text-align:center"><img src="/assets/logo-fondation-ck.png" alt="Logo" style="width:95px;height:95px;object-fit:contain"><h3 style="color:var(--green-deep)">Votre plan Free est actif</h3><p>Il vous reste <strong>${Number(d.plan?.days_remaining||0)} jour(s)</strong>. Profitez d’un accès continu en choisissant Standard ou Business.</p><div class="alert alert-warn">Standard : 5 100 F / 30 jours · Business : 45 600 F / 365 jours</div><div class="modal-actions"><button id="understood" class="btn btn-ghost">Compris</button><button id="buyPlan" class="btn btn-orange">Acheter mon plan</button></div></div>`,onReady:(wrap,close)=>{
+      wrap.querySelector('#understood').addEventListener('click',close);wrap.querySelector('#buyPlan').addEventListener('click',()=>{close();location.href='/parametres.html#abonnement';});
+    }});
+  }
+  let freeIntervalStarted=false;
+  function handleFreePlan(data){
+    if(!data?.user||data.user.role==='superadmin'||data.user.plan!=='free'||!data.subscription_active)return;
+    const justLogged=sessionStorage.getItem('fckJustLoggedIn')==='1';
+    const last=Number(localStorage.getItem('fckFreeLastPrompt')||0);
+    if(justLogged){sessionStorage.removeItem('fckJustLoggedIn');setTimeout(showFreePlanPopup,400)}
+    else if(!last || Date.now()-last>=15*60*1000){setTimeout(showFreePlanPopup,500)}
+    if(!freeIntervalStarted){freeIntervalStarted=true;setInterval(()=>{const t=Number(localStorage.getItem('fckFreeLastPrompt')||0);if(!t||Date.now()-t>=15*60*1000)showFreePlanPopup()},60*1000)}
+  }
+  function guardPage(data, key){ if(!data)return false; if(data.user.role==='superadmin'||data.user.role==='admin')return true; if(!data.access?.[key]){location.href='/index.html';return false;} return true; }
+  function subscriptionGate(data, target){
+    if(!data||data.user.role==='superadmin'||data.subscription_active)return false;
+    const el=typeof target==='string'?document.querySelector(target):target;if(el)el.innerHTML=`<div class="glass lock-screen"><h2>Abonnement expiré</h2><p>Votre période d’accès est terminée. Ouvrez Paramètre pour choisir une formule.</p><a class="btn btn-orange" href="/parametres.html#abonnement">Voir les formules</a></div>`;return true;
+  }
+  async function save(action, payload={}){ const r=await api('/api/save',{method:'POST',body:JSON.stringify({action,...payload})}); return r; }
+  function footer(){ const el=document.getElementById('siteFooter'); if(!el)return; el.innerHTML=`<div class="footer"><div class="footer-inner"><div><strong>LA FONDATION CK</strong><br><small>Charité · Cohésion · Développement</small></div><small>Plateforme sécurisée Cloudflare Pages · D1 · KV</small></div></div>`; }
+
+  window.FCK = { state, api, loadData, save, modal, toast, esc, fmtDate, money, showLoginModal, showForgotModal, guardPage, subscriptionGate };
+  document.addEventListener('DOMContentLoaded', async () => { renderHeader(); footer(); try { await loadData(); } catch (e) { console.error(e); toast(e.message || 'Erreur de chargement'); } document.dispatchEvent(new CustomEvent('fck:ready',{detail:state.data})); });
+})();

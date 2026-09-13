@@ -1,0 +1,13 @@
+name = "la-fondation-ck"
+compatibility_date = "2026-09-01"
+pages_build_output_dir = "public"
+
+[[kv_namespaces]]
+binding = "FONDATIONCK_KV"
+id = "ab4c34a92321484f907ac2793f7ab9d3"
+
+[[d1_databases]]
+binding = "FONDATIONCK_DB"
+database_name = "fondationck-d1"
+database_id = "e132c09c-f482-41a6-9c99-d5171d7531c1"
+migrations_dir = "migrations"
