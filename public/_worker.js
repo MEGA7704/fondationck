@@ -16,6 +16,7 @@ export default {
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
         await ensureRuntimeSecurityMigration(env);
         await ensureHierarchyVillageMigration(env);
+        await ensureAssociationsMigration(env);
         await ensureAccountRolesMigration(env);
         await ensureSuperAdmin(env, request);
         return await handleApi(request, env, ctx, url);
@@ -102,6 +103,83 @@ async function ensureHierarchyVillageMigration(env) {
     await env.FONDATIONCK_KV.put(key, '1');
   } catch (e) {
     console.warn('Hierarchy village migration pending:', e?.message || e);
+  }
+}
+
+
+async function ensureAssociationsMigration(env) {
+  // V2.5 : tables Associations, membres et responsables d'association.
+  const key = 'migration:associations:v2.5';
+  try { if (await env.FONDATIONCK_KV.get(key)) return; } catch {}
+  try {
+    await env.FONDATIONCK_DB.batch([
+      env.FONDATIONCK_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS associations (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL,
+          sector_id TEXT,
+          name TEXT NOT NULL,
+          acronym TEXT DEFAULT '',
+          activity_area TEXT DEFAULT '',
+          creation_date TEXT DEFAULT '',
+          registration_number TEXT DEFAULT '',
+          headquarters TEXT DEFAULT '',
+          phone TEXT DEFAULT '',
+          email TEXT DEFAULT '',
+          locality TEXT DEFAULT '',
+          village TEXT DEFAULT '',
+          description TEXT DEFAULT '',
+          status_label TEXT DEFAULT 'Active',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+          FOREIGN KEY (sector_id) REFERENCES sectors(id) ON DELETE SET NULL
+        )
+      `),
+      env.FONDATIONCK_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS association_members (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL,
+          association_id TEXT NOT NULL,
+          full_name TEXT NOT NULL,
+          gender TEXT DEFAULT '',
+          phone TEXT DEFAULT '',
+          email TEXT DEFAULT '',
+          locality TEXT DEFAULT '',
+          village TEXT DEFAULT '',
+          occupation TEXT DEFAULT '',
+          joined_at TEXT DEFAULT '',
+          status_label TEXT DEFAULT 'Actif',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+          FOREIGN KEY (association_id) REFERENCES associations(id) ON DELETE CASCADE
+        )
+      `),
+      env.FONDATIONCK_DB.prepare(`
+        CREATE TABLE IF NOT EXISTS association_responsibles (
+          id TEXT PRIMARY KEY,
+          organization_id TEXT NOT NULL,
+          association_id TEXT NOT NULL,
+          full_name TEXT NOT NULL,
+          function_title TEXT DEFAULT 'Responsable',
+          phone TEXT DEFAULT '',
+          email TEXT DEFAULT '',
+          locality TEXT DEFAULT '',
+          village TEXT DEFAULT '',
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+          FOREIGN KEY (association_id) REFERENCES associations(id) ON DELETE CASCADE
+        )
+      `),
+      env.FONDATIONCK_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_associations_org ON associations(organization_id)`),
+      env.FONDATIONCK_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_assoc_members_org_assoc ON association_members(organization_id, association_id)`),
+      env.FONDATIONCK_DB.prepare(`CREATE INDEX IF NOT EXISTS idx_assoc_resp_org_assoc ON association_responsibles(organization_id, association_id)`)
+    ]);
+    await env.FONDATIONCK_KV.put(key, '1');
+  } catch (e) {
+    console.warn('Associations migration pending:', e?.message || e);
   }
 }
 
@@ -386,7 +464,8 @@ async function login(request, env) {
   await env.FONDATIONCK_KV.put(`session:${token}`, JSON.stringify(session), { expirationTtl: SESSION_TTL });
   await audit(env, user.organization_id, user.id, user.role, 'LOGIN_SUCCESS', 'session', '', ip, {});
   const responseUser = sanitizeUser(user);
-  return json({ ok: true, user: responseUser, csrf_token: csrf, subscription_active: isSubscriptionActive(user) }, 200, {
+  const subscription = await subscriptionContext(env, user);
+  return json({ ok: true, user: responseUser, csrf_token: csrf, subscription_active: subscription.active, plan: subscription.plan, subscription_inherited: subscription.inherited }, 200, {
     'Set-Cookie': sessionCookie(token)
   });
 }
@@ -408,7 +487,7 @@ async function requestPasswordReset(request, env) {
       `).bind(crypto.randomUUID(), user.organization_id, user.id, email, user.role).run();
     }
   }
-  return json({ ok: true, message: 'Demande enregistrée. L’Administrateur principal et les Sous-administrateurs sont réinitialisés par le Super Admin ; les Visiteurs et Agents sont réinitialisés par un administrateur.' });
+  return json({ ok: true, message: 'Demande enregistrée. L’Administrateur principal et les Sous-administrateurs sont réinitialisés par le Super Admin ; les Visiteurs et Agents sont réinitialisés par l’Administrateur principal.' });
 }
 
 async function logout(request, env, session) {
@@ -442,12 +521,35 @@ async function loadData(env, session, url) {
   const user = session.user;
   const orgId = user.role === 'superadmin' ? DEFAULT_ORG_ID : user.organization_id;
   const access = parseAccess(user.access_json, user.role);
-  const subscriptionActive = isSubscriptionActive(user);
+  const subscription = await subscriptionContext(env, user);
+  const subscriptionActive = subscription.active;
   const scope = clean(url?.searchParams?.get('scope') || 'session', 30);
   const payload = {
-    ok: true, user: sanitizeUser(user), csrf_token: session.csrf, access,
-    subscription_active: subscriptionActive, plan: planInfo(user),
-    content: {}, sectors: [], responsibles: [], girls: [], boys: [], news: [], users: [], reset_requests: [], contact_messages: [], report: { totals: {}, by_sector: [] }
+    ok: true,
+    user: sanitizeUser(user),
+    csrf_token: session.csrf,
+    access,
+    subscription_active: subscriptionActive,
+    plan: subscription.plan,
+    subscription_inherited: subscription.inherited,
+    subscription_owner: subscription.owner ? {
+      id: subscription.owner.id,
+      full_name: subscription.owner.full_name,
+      account_type: accountType(subscription.owner)
+    } : null,
+    content: {},
+    sectors: [],
+    responsibles: [],
+    associations: [],
+    association_members: [],
+    association_responsibles: [],
+    girls: [],
+    boys: [],
+    news: [],
+    users: [],
+    reset_requests: [],
+    contact_messages: [],
+    report: { totals: {}, by_sector: [], by_association: [] }
   };
   if (!subscriptionActive && user.role !== 'superadmin') return json(payload);
   if (scope === 'session') return json(payload);
@@ -455,10 +557,35 @@ async function loadData(env, session, url) {
   const jobs = [];
   const assign = [];
   const add = (name, promise) => { assign.push(name); jobs.push(promise); };
-  if (scope === 'sectors' && access.sectors) add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
+
+  if (scope === 'sectors' && access.sectors) {
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
+  }
   if (scope === 'responsibles' && access.responsibles) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('responsibles', env.FONDATIONCK_DB.prepare(`SELECT r.*, s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.full_name`).bind(orgId).all());
+  }
+  if (scope === 'associations' && access.associations) {
+    add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
+    add('associations', env.FONDATIONCK_DB.prepare(`
+      SELECT a.*, s.name AS sector_name,
+        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=a.organization_id AND m.association_id=a.id) AS members_count,
+        (SELECT COUNT(*) FROM association_responsibles r WHERE r.organization_id=a.organization_id AND r.association_id=a.id) AS responsibles_count
+      FROM associations a
+      LEFT JOIN sectors s ON s.id=a.sector_id
+      WHERE a.organization_id=?
+      ORDER BY a.name
+    `).bind(orgId).all());
+    add('association_members', env.FONDATIONCK_DB.prepare(`
+      SELECT m.*, a.name AS association_name
+      FROM association_members m JOIN associations a ON a.id=m.association_id
+      WHERE m.organization_id=? ORDER BY a.name,m.full_name
+    `).bind(orgId).all());
+    add('association_responsibles', env.FONDATIONCK_DB.prepare(`
+      SELECT r.*, a.name AS association_name
+      FROM association_responsibles r JOIN associations a ON a.id=r.association_id
+      WHERE r.organization_id=? ORDER BY a.name,r.full_name
+    `).bind(orgId).all());
   }
   if (scope === 'girls' && access.girls) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
@@ -473,36 +600,57 @@ async function loadData(env, session, url) {
       SELECT
         (SELECT COUNT(*) FROM sectors WHERE organization_id=?) AS sectors,
         (SELECT COUNT(*) FROM responsibles WHERE organization_id=?) AS responsibles,
+        (SELECT COUNT(*) FROM associations WHERE organization_id=?) AS associations,
+        (SELECT COUNT(*) FROM association_members WHERE organization_id=?) AS association_members,
+        (SELECT COUNT(*) FROM association_responsibles WHERE organization_id=?) AS association_responsibles,
         (SELECT COUNT(*) FROM girls WHERE organization_id=?) AS girls,
         (SELECT COUNT(*) FROM boys WHERE organization_id=?) AS boys
-    `).bind(orgId,orgId,orgId,orgId).first());
+    `).bind(orgId,orgId,orgId,orgId,orgId,orgId,orgId).first());
     add('report_by_sector', env.FONDATIONCK_DB.prepare(`
       SELECT s.id,s.name,s.locality,s.village,
         (SELECT COUNT(*) FROM responsibles r WHERE r.organization_id=? AND r.sector_id=s.id) AS responsibles,
+        (SELECT COUNT(*) FROM associations a WHERE a.organization_id=? AND a.sector_id=s.id) AS associations,
         (SELECT COUNT(*) FROM girls g WHERE g.organization_id=? AND g.sector_id=s.id) AS girls,
         (SELECT COUNT(*) FROM boys b WHERE b.organization_id=? AND b.sector_id=s.id) AS boys
       FROM sectors s WHERE s.organization_id=?
       ORDER BY s.name,s.locality,s.village
-    `).bind(orgId,orgId,orgId,orgId).all());
+    `).bind(orgId,orgId,orgId,orgId,orgId).all());
+    add('report_by_association', env.FONDATIONCK_DB.prepare(`
+      SELECT a.id,a.name,a.acronym,a.activity_area,a.locality,a.village,a.status_label,
+        (SELECT COUNT(*) FROM association_members m WHERE m.organization_id=? AND m.association_id=a.id) AS members,
+        (SELECT COUNT(*) FROM association_responsibles r WHERE r.organization_id=? AND r.association_id=a.id) AS responsibles
+      FROM associations a WHERE a.organization_id=?
+      ORDER BY a.name
+    `).bind(orgId,orgId,orgId).all());
   }
-  if (scope === 'settings' && ['admin','superadmin'].includes(user.role)) {
+
+  const canManageSettings = user.role === 'superadmin' || isPrincipalAdmin(user);
+  if (scope === 'settings' && canManageSettings) {
     add('content', env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(orgId).first());
     add('news', env.FONDATIONCK_DB.prepare('SELECT id,title,summary,content,image_key,published,published_at,created_at FROM news WHERE organization_id=? ORDER BY datetime(published_at) DESC').bind(orgId).all());
     add('users', env.FONDATIONCK_DB.prepare(`SELECT id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json,created_at FROM users WHERE organization_id=? ORDER BY role, full_name`).bind(orgId).all());
-    add('reset_requests', env.FONDATIONCK_DB.prepare(`SELECT r.id,r.email,r.target_role,r.status,r.requested_at,u.full_name FROM password_reset_requests r LEFT JOIN users u ON u.id=r.user_id WHERE r.organization_id=? AND r.status='pending' AND r.target_role='member' ORDER BY datetime(r.requested_at) DESC`).bind(orgId).all());
+    add('reset_requests', env.FONDATIONCK_DB.prepare(`
+      SELECT r.id,r.email,r.target_role,r.status,r.requested_at,u.full_name
+      FROM password_reset_requests r LEFT JOIN users u ON u.id=r.user_id
+      WHERE r.organization_id=? AND r.status='pending' AND r.target_role='member'
+      ORDER BY datetime(r.requested_at) DESC
+    `).bind(orgId).all());
     add('contact_messages', env.FONDATIONCK_DB.prepare('SELECT * FROM contact_messages WHERE organization_id=? ORDER BY datetime(created_at) DESC LIMIT 100').bind(orgId).all());
   }
+
   const results = await Promise.all(jobs);
   for (let i=0;i<results.length;i++) {
     const name=assign[i], value=results[i];
     if (name==='content') payload.content=value||{};
     else if (name==='report_totals') payload.report.totals=value||{};
     else if (name==='report_by_sector') payload.report.by_sector=value.results||[];
+    else if (name==='report_by_association') payload.report.by_association=value.results||[];
     else if (name==='users') payload.users=(value.results||[]).map(sanitizeUser);
     else if (name==='news') payload.news=(value.results||[]).map(n=>({...n,image_url:n.image_key?`/media/${encodeURIComponent(n.image_key)}`:''}));
     else payload[name]=value.results||[];
   }
-  if (scope === 'settings') {
+
+  if (scope === 'settings' && canManageSettings) {
     if (!clean(payload.content.contact_phone,80)) payload.content.contact_phone=FOUNDATION_PHONE;
     if (!clean(payload.content.whatsapp,80)) payload.content.whatsapp=FOUNDATION_WHATSAPP;
     if (!clean(payload.content.contact_email,180)) payload.content.contact_email=FOUNDATION_EMAIL;
@@ -519,20 +667,31 @@ async function saveData(request, env, session) {
   const orgId = user.role === 'superadmin' ? DEFAULT_ORG_ID : user.organization_id;
   const currentType = accountType(user);
   if (currentType === 'visitor' && action !== 'change-own-password') return json({ ok: false, error: 'Le statut Visiteur autorise uniquement la consultation. Aucune modification n’est permise.' }, 403);
-  if (!isSubscriptionActive(user) && user.role !== 'superadmin' && !['change-own-password'].includes(action)) {
-    return json({ ok: false, error: 'Votre abonnement a expiré. Activez un plan pour continuer.' }, 402);
+  const subscription = await subscriptionContext(env, user);
+  if (!subscription.active && user.role !== 'superadmin' && !['change-own-password'].includes(action)) {
+    return json({ ok: false, error: 'L’abonnement de l’Administrateur principal est expiré ou indisponible.' }, 402);
   }
 
-  const strictAdmin = new Set(['add-news','update-news','delete-news','update-site-content','create-user','update-user-access','reset-member-password','resolve-member-reset']);
+  const principalOnly = new Set(['add-news','update-news','delete-news','update-site-content','create-user','update-user-access','reset-member-password','resolve-member-reset']);
   const entityPage = {
     'add-sector':'sectors','update-sector':'sectors','delete-sector':'sectors',
     'add-responsible':'responsibles','update-responsible':'responsibles','delete-responsible':'responsibles',
+    'add-association':'associations','update-association':'associations','delete-association':'associations',
+    'add-association-member':'associations','update-association-member':'associations','delete-association-member':'associations',
+    'add-association-responsible':'associations','update-association-responsible':'associations','delete-association-responsible':'associations',
     'add-girl':'girls','update-girl':'girls','delete-girl':'girls',
     'add-boy':'boys','update-boy':'boys','delete-boy':'boys'
   };
-  const addActions = new Set(['add-sector','add-responsible','add-girl','add-boy']);
-  const guardedAgentActions = new Set(['update-sector','delete-sector','update-responsible','delete-responsible','update-girl','delete-girl','update-boy','delete-boy']);
-  if (strictAdmin.has(action) && !['admin','superadmin'].includes(user.role)) return json({ ok: false, error: 'Action réservée à l’Administrateur.' }, 403);
+  const addActions = new Set(['add-sector','add-responsible','add-association','add-association-member','add-association-responsible','add-girl','add-boy']);
+  const guardedAgentActions = new Set([
+    'update-sector','delete-sector','update-responsible','delete-responsible',
+    'update-association','delete-association','update-association-member','delete-association-member',
+    'update-association-responsible','delete-association-responsible',
+    'update-girl','delete-girl','update-boy','delete-boy'
+  ]);
+  if (principalOnly.has(action) && !(user.role === 'superadmin' || isPrincipalAdmin(user))) {
+    return json({ ok: false, error: 'Action réservée à l’Administrateur principal.' }, 403);
+  }
   if (action === 'set-user-type' && !isPrincipalAdmin(user)) return json({ ok: false, error: 'Seul l’Administrateur principal peut attribuer le statut Agent ou Sous-administrateur.' }, 403);
   let approvalAdminId = '';
   if (user.role === 'member' && currentType === 'agent' && action !== 'change-own-password') {
@@ -555,6 +714,15 @@ async function saveData(request, env, session) {
     case 'add-responsible': result = await addResponsible(env, orgId, body); break;
     case 'update-responsible': result = await updateResponsible(env, orgId, body); break;
     case 'delete-responsible': result = await deleteEntity(env, 'responsibles', orgId, body.id); break;
+    case 'add-association': result = await addAssociation(env, orgId, body); break;
+    case 'update-association': result = await updateAssociation(env, orgId, body); break;
+    case 'delete-association': result = await deleteAssociation(env, orgId, body.id); break;
+    case 'add-association-member': result = await addAssociationMember(env, orgId, body); break;
+    case 'update-association-member': result = await updateAssociationMember(env, orgId, body); break;
+    case 'delete-association-member': result = await deleteAssociationChild(env, 'association_members', orgId, body.id); break;
+    case 'add-association-responsible': result = await addAssociationResponsible(env, orgId, body); break;
+    case 'update-association-responsible': result = await updateAssociationResponsible(env, orgId, body); break;
+    case 'delete-association-responsible': result = await deleteAssociationChild(env, 'association_responsibles', orgId, body.id); break;
     case 'add-girl': result = await addYoung(env, 'girls', orgId, body); break;
     case 'update-girl': result = await updateYoung(env, 'girls', orgId, body); break;
     case 'delete-girl': result = await deleteEntity(env, 'girls', orgId, body.id); break;
@@ -579,7 +747,7 @@ async function saveData(request, env, session) {
 
 async function uploadImage(request, env, session) {
   if (!validCsrf(request, session)) return json({ ok: false, error: 'Jeton CSRF invalide.' }, 403);
-  if (!['admin','superadmin'].includes(session.user.role)) return json({ ok: false, error: 'Action réservée à l’administrateur.' }, 403);
+  if (!(session.user.role === 'superadmin' || isPrincipalAdmin(session.user))) return json({ ok: false, error: 'Action réservée à l’Administrateur principal.' }, 403);
   const form = await request.formData();
   const file = form.get('image');
   if (!(file instanceof File) || file.size === 0) return json({ ok: false, error: 'Image requise.' }, 400);
@@ -670,6 +838,153 @@ async function updateResponsible(env, orgId, b) {
   const r=await env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET sector_id=?,full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(sectorId,full,clean(b.function_title,140)||'Responsable de secteur',clean(b.phone,40),clean(b.email,180),locality,village,id,orgId).run(); ensureChanged(r);
   return { target_type:'responsible', target_id:id };
 }
+
+async function associationContext(env, orgId, rawId) {
+  const id = clean(rawId, 80);
+  if (!id) throw bad('Association requise.');
+  const row = await env.FONDATIONCK_DB.prepare(`
+    SELECT id,name,locality,village FROM associations
+    WHERE id=? AND organization_id=?
+  `).bind(id, orgId).first();
+  if (!row) throw bad('Association introuvable.');
+  return row;
+}
+
+async function addAssociation(env, orgId, b) {
+  const id = crypto.randomUUID();
+  const name = clean(b.name, 180);
+  if (!name) throw bad('Nom de l’association requis.');
+  const sector = b.sector_id ? await sectorContext(env, orgId, b.sector_id) : null;
+  const locality = sector ? clean(sector.locality, 140) : clean(b.locality, 140);
+  const village = sector ? clean(sector.village, 140) : clean(b.village, 140);
+  await env.FONDATIONCK_DB.prepare(`
+    INSERT INTO associations (
+      id,organization_id,sector_id,name,acronym,activity_area,creation_date,
+      registration_number,headquarters,phone,email,locality,village,description,status_label
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(
+    id,orgId,sector?.id||null,name,clean(b.acronym,60),clean(b.activity_area,180),
+    clean(b.creation_date,20),clean(b.registration_number,100),clean(b.headquarters,220),
+    clean(b.phone,40),clean(b.email,180),locality,village,clean(b.description,2500),
+    clean(b.status_label,80)||'Active'
+  ).run();
+  return { target_type:'association', target_id:id, message:'Association ajoutée.' };
+}
+
+async function updateAssociation(env, orgId, b) {
+  const id = clean(b.id,80), name = clean(b.name,180);
+  if (!id || !name) throw bad('Données de l’association incomplètes.');
+  const sector = b.sector_id ? await sectorContext(env, orgId, b.sector_id) : null;
+  const locality = sector ? clean(sector.locality,140) : clean(b.locality,140);
+  const village = sector ? clean(sector.village,140) : clean(b.village,140);
+  const r = await env.FONDATIONCK_DB.prepare(`
+    UPDATE associations SET
+      sector_id=?,name=?,acronym=?,activity_area=?,creation_date=?,registration_number=?,
+      headquarters=?,phone=?,email=?,locality=?,village=?,description=?,status_label=?,
+      updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND organization_id=?
+  `).bind(
+    sector?.id||null,name,clean(b.acronym,60),clean(b.activity_area,180),
+    clean(b.creation_date,20),clean(b.registration_number,100),clean(b.headquarters,220),
+    clean(b.phone,40),clean(b.email,180),locality,village,clean(b.description,2500),
+    clean(b.status_label,80)||'Active',id,orgId
+  ).run();
+  ensureChanged(r);
+  return { target_type:'association', target_id:id, message:'Association modifiée.' };
+}
+
+async function deleteAssociation(env, orgId, rawId) {
+  const id = clean(rawId,80);
+  if (!id) throw bad('Identifiant manquant.');
+  await env.FONDATIONCK_DB.batch([
+    env.FONDATIONCK_DB.prepare('DELETE FROM association_members WHERE association_id=? AND organization_id=?').bind(id,orgId),
+    env.FONDATIONCK_DB.prepare('DELETE FROM association_responsibles WHERE association_id=? AND organization_id=?').bind(id,orgId)
+  ]);
+  const r = await env.FONDATIONCK_DB.prepare('DELETE FROM associations WHERE id=? AND organization_id=?').bind(id,orgId).run();
+  ensureChanged(r);
+  return { target_type:'association', target_id:id, message:'Association supprimée avec ses listes liées.' };
+}
+
+async function addAssociationMember(env, orgId, b) {
+  const association = await associationContext(env, orgId, b.association_id);
+  const full = clean(b.full_name,140);
+  if (!full) throw bad('Nom du membre requis.');
+  const id = crypto.randomUUID();
+  await env.FONDATIONCK_DB.prepare(`
+    INSERT INTO association_members (
+      id,organization_id,association_id,full_name,gender,phone,email,locality,village,
+      occupation,joined_at,status_label
+    ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+  `).bind(
+    id,orgId,association.id,full,clean(b.gender,30),clean(b.phone,40),clean(b.email,180),
+    clean(b.locality,140)||association.locality,clean(b.village,140)||association.village,
+    clean(b.occupation,180),clean(b.joined_at,20),clean(b.status_label,80)||'Actif'
+  ).run();
+  return { target_type:'association_member', target_id:id, message:'Membre ajouté à l’association.' };
+}
+
+async function updateAssociationMember(env, orgId, b) {
+  const id = clean(b.id,80), association = await associationContext(env, orgId, b.association_id);
+  const full = clean(b.full_name,140);
+  if (!id || !full) throw bad('Données du membre incomplètes.');
+  const r = await env.FONDATIONCK_DB.prepare(`
+    UPDATE association_members SET
+      association_id=?,full_name=?,gender=?,phone=?,email=?,locality=?,village=?,
+      occupation=?,joined_at=?,status_label=?,updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND organization_id=?
+  `).bind(
+    association.id,full,clean(b.gender,30),clean(b.phone,40),clean(b.email,180),
+    clean(b.locality,140)||association.locality,clean(b.village,140)||association.village,
+    clean(b.occupation,180),clean(b.joined_at,20),clean(b.status_label,80)||'Actif',id,orgId
+  ).run();
+  ensureChanged(r);
+  return { target_type:'association_member', target_id:id, message:'Membre modifié.' };
+}
+
+async function addAssociationResponsible(env, orgId, b) {
+  const association = await associationContext(env, orgId, b.association_id);
+  const full = clean(b.full_name,140);
+  if (!full) throw bad('Nom du responsable requis.');
+  const id = crypto.randomUUID();
+  await env.FONDATIONCK_DB.prepare(`
+    INSERT INTO association_responsibles (
+      id,organization_id,association_id,full_name,function_title,phone,email,locality,village
+    ) VALUES (?,?,?,?,?,?,?,?,?)
+  `).bind(
+    id,orgId,association.id,full,clean(b.function_title,140)||'Responsable',
+    clean(b.phone,40),clean(b.email,180),clean(b.locality,140)||association.locality,
+    clean(b.village,140)||association.village
+  ).run();
+  return { target_type:'association_responsible', target_id:id, message:'Responsable ajouté à l’association.' };
+}
+
+async function updateAssociationResponsible(env, orgId, b) {
+  const id = clean(b.id,80), association = await associationContext(env, orgId, b.association_id);
+  const full = clean(b.full_name,140);
+  if (!id || !full) throw bad('Données du responsable incomplètes.');
+  const r = await env.FONDATIONCK_DB.prepare(`
+    UPDATE association_responsibles SET
+      association_id=?,full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,
+      updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND organization_id=?
+  `).bind(
+    association.id,full,clean(b.function_title,140)||'Responsable',clean(b.phone,40),
+    clean(b.email,180),clean(b.locality,140)||association.locality,
+    clean(b.village,140)||association.village,id,orgId
+  ).run();
+  ensureChanged(r);
+  return { target_type:'association_responsible', target_id:id, message:'Responsable modifié.' };
+}
+
+async function deleteAssociationChild(env, table, orgId, rawId) {
+  if (!['association_members','association_responsibles'].includes(table)) throw bad('Table interdite.');
+  const id = clean(rawId,80);
+  if (!id) throw bad('Identifiant manquant.');
+  const r = await env.FONDATIONCK_DB.prepare(`DELETE FROM ${table} WHERE id=? AND organization_id=?`).bind(id,orgId).run();
+  ensureChanged(r);
+  return { target_type:table, target_id:id };
+}
+
 async function addYoung(env, table, orgId, b) {
   const id=crypto.randomUUID(), full=clean(b.full_name,140); if(!full) throw bad('Nom requis.');
   const sectorId=await validSector(env,orgId,b.sector_id);
@@ -788,11 +1103,16 @@ async function superDeleteUser(env,selfId,b){
   return { organization_id:target.organization_id,target_type:'user',target_id:id };
 }
 async function superSetPlan(env,b){
-  const id=clean(b.id,80), plan=['free','standard','business'].includes(b.plan)?b.plan:null; if(!id||!plan) throw bad('Plan invalide.');
-  const target=await env.FONDATIONCK_DB.prepare('SELECT organization_id,role FROM users WHERE id=?').bind(id).first(); if(!target||target.role==='superadmin') throw bad('Compte non éligible.');
+  const id=clean(b.id,80), plan=['free','standard','business'].includes(b.plan)?b.plan:null;
+  if(!id||!plan) throw bad('Plan invalide.');
+  const target=await env.FONDATIONCK_DB.prepare('SELECT id,organization_id,role,access_json FROM users WHERE id=?').bind(id).first();
+  if(!target||target.role==='superadmin') throw bad('Compte non éligible.');
+  if(accountType(target)!=='principal_admin') {
+    throw bad('Les abonnements sont gérés uniquement sur le compte Administrateur principal. Les Visiteurs, Agents et Sous-administrateurs utilisent automatiquement son abonnement actif.');
+  }
   const start=isoNow(),expiry=addDays(start,plan==='free'?10:plan==='standard'?30:365);
   await env.FONDATIONCK_DB.prepare('UPDATE users SET plan=?,plan_started_at=?,plan_expires_at=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(plan,start,expiry,id).run();
-  return { organization_id:target.organization_id,target_type:'user',target_id:id,audit:{plan,expiry},message:`Plan ${plan} activé.` };
+  return { organization_id:target.organization_id,target_type:'user',target_id:id,audit:{plan,expiry},message:`Plan ${plan} activé pour l’Administrateur principal.` };
 }
 async function superResetPassword(env,b){
   const id=clean(b.id,80), password=String(b.password||''); if(password.length<8) throw bad('Mot de passe temporaire de 8 caractères minimum requis.');
@@ -876,8 +1196,44 @@ function sanitizeUser(u){
   if(!u) return null;
   return { id:u.id,organization_id:u.organization_id,email:u.email,full_name:u.full_name,phone:u.phone||'',role:u.role,status:u.status,plan:u.plan,plan_started_at:u.plan_started_at,plan_expires_at:u.plan_expires_at,must_change_password:!!u.must_change_password,access:parseAccess(u.access_json,u.role),created_at:u.created_at };
 }
-function planInfo(u){ return { name:u.plan,started_at:u.plan_started_at,expires_at:u.plan_expires_at,active:isSubscriptionActive(u),days_remaining:daysRemaining(u.plan_expires_at) }; }
-function isSubscriptionActive(u){ if(u.role==='superadmin') return true; return new Date(u.plan_expires_at).getTime() > Date.now(); }
+function storedPlanInfo(u){
+  if(!u) return { name:'',started_at:'',expires_at:'',active:false,days_remaining:0 };
+  return {
+    name:u.plan||'free',
+    started_at:u.plan_started_at||'',
+    expires_at:u.plan_expires_at||'',
+    active:isStoredSubscriptionActive(u),
+    days_remaining:daysRemaining(u.plan_expires_at)
+  };
+}
+function isStoredSubscriptionActive(u){
+  if(!u) return false;
+  if(u.role==='superadmin') return true;
+  if(u.status && u.status!=='active') return false;
+  return new Date(u.plan_expires_at).getTime() > Date.now();
+}
+async function principalAdminForOrg(env, orgId){
+  if(!orgId) return null;
+  const rows=await env.FONDATIONCK_DB.prepare(`
+    SELECT id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,
+           must_change_password,access_json,session_version,created_at,updated_at
+    FROM users WHERE organization_id=? AND role='admin'
+    ORDER BY created_at ASC
+  `).bind(orgId).all();
+  return (rows.results||[]).find(u=>accountType(u)==='principal_admin')||null;
+}
+async function subscriptionContext(env,u){
+  if(!u) return {active:false,inherited:false,owner:null,plan:storedPlanInfo(null)};
+  if(u.role==='superadmin') return {active:true,inherited:false,owner:u,plan:storedPlanInfo(u)};
+  const type=accountType(u);
+  if(type==='principal_admin') {
+    const plan=storedPlanInfo(u);
+    return {active:plan.active,inherited:false,owner:u,plan};
+  }
+  const owner=await principalAdminForOrg(env,u.organization_id);
+  const plan=storedPlanInfo(owner);
+  return {active:!!owner && plan.active,inherited:true,owner,plan};
+}
 function daysRemaining(exp){ return Math.max(0,Math.ceil((new Date(exp).getTime()-Date.now())/86400000)); }
 function parseAccess(raw,role){
   let a={}; try{a=JSON.parse(raw||'{}')||{};}catch{}
@@ -897,9 +1253,9 @@ function accountType(u){
   return a.account_type==='visitor'?'visitor':'agent';
 }
 function isPrincipalAdmin(u){ return u?.role==='admin' && accountType(u)==='principal_admin'; }
-function fullAdminAccess(type='subadmin'){ return {home:true,sectors:true,responsibles:true,girls:true,boys:true,reports:true,settings:true,can_add:true,can_print:true,account_type:type}; }
-function visitorAccess(){ return {home:true,sectors:true,responsibles:true,girls:true,boys:true,reports:true,settings:true,can_add:false,can_print:false,account_type:'visitor'}; }
-function agentAccess(a={}){ return {home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,girls:a?.girls!==false,boys:a?.boys!==false,reports:a?.reports!==false,settings:true,can_add:a?.can_add!==false,can_print:a?.can_print!==false,account_type:'agent'}; }
+function fullAdminAccess(type='subadmin'){ return {home:true,sectors:true,responsibles:true,associations:true,girls:true,boys:true,reports:true,settings:true,can_add:true,can_print:true,account_type:type}; }
+function visitorAccess(){ return {home:true,sectors:true,responsibles:true,associations:true,girls:true,boys:true,reports:true,settings:true,can_add:false,can_print:false,account_type:'visitor'}; }
+function agentAccess(a={}){ return {home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,associations:a?.associations!==false,girls:a?.girls!==false,boys:a?.boys!==false,reports:a?.reports!==false,settings:true,can_add:a?.can_add!==false,can_print:a?.can_print!==false,account_type:'agent'}; }
 function normalizeAccess(a){ return agentAccess(a); }
 
 async function hashPassword(password){

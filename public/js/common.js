@@ -42,6 +42,7 @@
   function scopeForPage() {
     if (page === 'sectors') return 'sectors';
     if (page === 'responsibles') return 'responsibles';
+    if (page === 'associations') return 'associations';
     if (page === 'girls') return 'girls';
     if (page === 'boys') return 'boys';
     if (page === 'settings') return 'settings';
@@ -68,10 +69,11 @@
     const u = state.user; const access = state.data?.access || {};
     const publicNav = `<a class="nav-link ${page==='home'?'active':''}" href="/index.html">Accueil</a><a class="nav-link ${page==='contact'?'active':''}" href="/contact.html">Contacts</a>`;
     let privateNav = `<a class="nav-link ${page==='home'?'active':''}" href="/index.html">Accueil</a>`;
-    if (u?.role === 'superadmin') privateNav += `<a class="nav-link ${page==='reports'?'active':''}" href="/rapport.html">Rapport</a><a class="nav-link ${page==='superadmin'?'active':''}" href="/superadmin.html">Super Admin</a>`;
+    if (u?.role === 'superadmin') privateNav += `<a class="nav-link ${page==='sectors'?'active':''}" href="/secteurs.html">Secteur</a><a class="nav-link ${page==='responsibles'?'active':''}" href="/responsables.html">Responsables</a><a class="nav-link ${page==='associations'?'active':''}" href="/associations.html">Associations</a><a class="nav-link ${page==='girls'?'active':''}" href="/jeunes-filles.html">Jeunes filles</a><a class="nav-link ${page==='boys'?'active':''}" href="/jeunes-garcons.html">Jeunes garçons</a><a class="nav-link ${page==='reports'?'active':''}" href="/rapport.html">Rapport</a><a class="nav-link ${page==='superadmin'?'active':''}" href="/superadmin.html">Super Admin</a>`;
     else if (u) {
       if (access.sectors) privateNav += `<a class="nav-link ${page==='sectors'?'active':''}" href="/secteurs.html">Secteur</a>`;
       if (access.responsibles) privateNav += `<a class="nav-link ${page==='responsibles'?'active':''}" href="/responsables.html">Responsables</a>`;
+      if (access.associations) privateNav += `<a class="nav-link ${page==='associations'?'active':''}" href="/associations.html">Associations</a>`;
       if (access.girls) privateNav += `<a class="nav-link ${page==='girls'?'active':''}" href="/jeunes-filles.html">Jeunes filles</a>`;
       if (access.boys) privateNav += `<a class="nav-link ${page==='boys'?'active':''}" href="/jeunes-garcons.html">Jeunes garçons</a>`;
       if (access.reports) privateNav += `<a class="nav-link ${page==='reports'?'active':''}" href="/rapport.html">Rapport</a>`;
@@ -103,12 +105,12 @@
     }});
   }
   function showForgotModal() {
-    modal({title:'Demande de réinitialisation',html:`<div class="alert alert-info">L’<strong>Administrateur principal</strong> et les <strong>Sous-administrateurs</strong> sont réinitialisés par le <strong>Super Admin</strong>. Les <strong>Visiteurs</strong> et <strong>Agents</strong> sont réinitialisés par un administrateur.</div><form id="forgotForm" class="form-grid"><div class="field full"><label>Adresse e-mail du compte</label><input class="input" type="email" name="email" required></div><div class="field full"><button class="btn btn-primary" type="submit">Envoyer la demande</button></div></form>`,onReady:(wrap,close)=>{
+    modal({title:'Demande de réinitialisation',html:`<div class="alert alert-info">L’<strong>Administrateur principal</strong> et les <strong>Sous-administrateurs</strong> sont réinitialisés par le <strong>Super Admin</strong>. Les <strong>Visiteurs</strong> et <strong>Agents</strong> sont réinitialisés par l’<strong>Administrateur principal</strong>.</div><form id="forgotForm" class="form-grid"><div class="field full"><label>Adresse e-mail du compte</label><input class="input" type="email" name="email" required></div><div class="field full"><button class="btn btn-primary" type="submit">Envoyer la demande</button></div></form>`,onReady:(wrap,close)=>{
       wrap.querySelector('#forgotForm').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.currentTarget);try{const r=await api('/api/password-reset-request',{method:'POST',body:JSON.stringify({email:f.get('email')})});toast(r.message);close();}catch(err){toast(err.message,'error');}});
     }});
   }
   function showFreePlanPopup() {
-    const d=state.data;if(!d||!state.user||state.user.role==='superadmin'||state.user.access?.account_type==='visitor'||state.user.plan!=='free'||!d.subscription_active)return;
+    const d=state.data;if(!d||!state.user||state.user.role==='superadmin'||state.user.access?.account_type!=='principal_admin'||state.user.plan!=='free'||!d.subscription_active)return;
     localStorage.setItem('fckFreeLastPrompt', String(Date.now()));
     modal({title:'Passez à une formule payante',html:`<div style="text-align:center"><img src="/assets/logo-fondation-ck.png" alt="Logo" style="width:95px;height:95px;object-fit:contain"><h3 style="color:var(--green-deep)">Votre plan Free est actif</h3><p>Il vous reste <strong>${Number(d.plan?.days_remaining||0)} jour(s)</strong>. Profitez d’un accès continu en choisissant Standard ou Business.</p><div class="alert alert-warn">Standard : 5 100 F / 30 jours · Business : 45 600 F / 365 jours</div><div class="modal-actions"><button id="understood" class="btn btn-ghost">Compris</button><button id="buyPlan" class="btn btn-orange">Acheter mon plan</button></div></div>`,onReady:(wrap,close)=>{
       wrap.querySelector('#understood').addEventListener('click',close);wrap.querySelector('#buyPlan').addEventListener('click',()=>{close();location.href='/parametres.html#abonnement';});
@@ -116,7 +118,7 @@
   }
   let freeIntervalStarted=false;
   function handleFreePlan(data){
-    if(!data?.user||data.user.role==='superadmin'||data.user.access?.account_type==='visitor'||data.user.plan!=='free'||!data.subscription_active)return;
+    if(!data?.user||data.user.role==='superadmin'||data.user.access?.account_type!=='principal_admin'||data.user.plan!=='free'||!data.subscription_active)return;
     const justLogged=sessionStorage.getItem('fckJustLoggedIn')==='1';
     const last=Number(localStorage.getItem('fckFreeLastPrompt')||0);
     if(justLogged){sessionStorage.removeItem('fckJustLoggedIn');setTimeout(showFreePlanPopup,250)}
@@ -127,8 +129,12 @@
   function subscriptionGate(data, target){
     if(!data||data.user.role==='superadmin'||data.subscription_active)return false;
     const el=typeof target==='string'?document.querySelector(target):target;
-    const visitor=data.user.access?.account_type==='visitor';
-    if(el)el.innerHTML=visitor?`<div class="glass lock-screen"><h2>Accès expiré</h2><p>Votre compte Visiteur n’est plus actif. Contactez l’Administrateur principal.</p><a class="btn btn-orange" href="/parametres.html">Mon compte</a></div>`:`<div class="glass lock-screen"><h2>Abonnement expiré</h2><p>Votre période d’accès est terminée. Ouvrez Paramètre pour choisir une formule.</p><a class="btn btn-orange" href="/parametres.html#abonnement">Voir les formules</a></div>`;return true;
+    const type=data.user.access?.account_type||'';
+    const dependent=['visitor','agent','subadmin'].includes(type);
+    if(el)el.innerHTML=dependent
+      ? `<div class="glass lock-screen"><h2>Accès suspendu</h2><p>L’abonnement de votre Administrateur principal est expiré ou n’est pas encore actif.</p><a class="btn btn-orange" href="/parametres.html">Mon compte</a></div>`
+      : `<div class="glass lock-screen"><h2>Abonnement expiré</h2><p>Votre période d’accès est terminée. Ouvrez Paramètre pour choisir une formule.</p><a class="btn btn-orange" href="/parametres.html#abonnement">Voir les formules</a></div>`;
+    return true;
   }
   async function save(action, payload={}){ return api('/api/save',{method:'POST',body:JSON.stringify({action,...payload})}); }
   function footer(){

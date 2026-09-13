@@ -65,3 +65,7 @@ footer#siteFooter{flex:0 0 auto;margin-top:auto}
   body.printing-list th,body.printing-list td{padding:7px 8px;border:1px solid #bbb;color:#000;background:#fff}
   body.printing-list th{font-weight:800}
 }
+
+/* V2.5 — Associations */
+.row-selected td{background:#eef8f2}
+#associationDetail .settings-card{border:1px solid var(--line);border-radius:16px;background:rgba(255,255,255,.92)}

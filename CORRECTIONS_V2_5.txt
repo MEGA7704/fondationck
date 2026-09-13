@@ -1,0 +1,15 @@
+LA FONDATION CK — CORRECTIONS V2.5
+
+1. Ajout du menu et de la page Associations.
+2. Formulaire complet Ajouter association.
+3. Listes Membres et Responsables par association.
+4. Ajout / modification / suppression / impression selon droits.
+5. Rapport enrichi avec Associations, Membres et Responsables d’associations.
+6. Paramètre Visiteur : Mon compte uniquement.
+7. Paramètre Agent : Mon compte + Support technique uniquement.
+8. Paramètre Sous-administrateur : Mon compte + Support technique uniquement.
+9. Paramètre Administrateur principal : gestion complète.
+10. Abonnement des Visiteurs, Agents et Sous-administrateurs hérité automatiquement de l’Administrateur principal.
+11. Plan activable par le Super Admin uniquement sur l’Administrateur principal.
+12. Un seul Administrateur principal autorisé.
+13. Migration D1 automatique et non destructive pour les associations.

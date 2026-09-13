@@ -1,6 +1,6 @@
 {
   "name": "la-fondation-ck",
-  "version": "2.4.0",
+  "version": "2.5.0",
   "private": true,
   "scripts": {
     "dev": "wrangler pages dev public --d1=FONDATIONCK_DB --kv=FONDATIONCK_KV",
