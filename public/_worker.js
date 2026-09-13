@@ -658,18 +658,26 @@ async function loadData(env, session, url) {
       SELECT s.*,
         (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name,
         (SELECT r.phone FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_phone,
-        (SELECT r.id FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_id
+        (SELECT r.id FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_id,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id AND LOWER(r.function_title)=LOWER('Responsable des jeunes filles') ORDER BY datetime(r.created_at),r.full_name LIMIT 1) AS girls_responsible_name,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id AND LOWER(r.function_title)=LOWER('Responsable des jeunes garçons') ORDER BY datetime(r.created_at),r.full_name LIMIT 1) AS boys_responsible_name
       FROM sectors s WHERE s.organization_id=? ORDER BY s.name,s.locality
     `).bind(orgId).all());
     add('responsibles', env.FONDATIONCK_DB.prepare(`SELECT r.*,s.name AS sector_name FROM responsibles r LEFT JOIN sectors s ON s.id=r.sector_id WHERE r.organization_id=? ORDER BY r.is_primary DESC,r.full_name`).bind(orgId).all());
     if (access.girls) add('girls', env.FONDATIONCK_DB.prepare(`
       SELECT g.*,s.name AS sector_name,
-        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name
+        COALESCE(
+          (SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id AND LOWER(r.function_title)=LOWER('Responsable des jeunes filles') ORDER BY datetime(r.created_at),r.full_name LIMIT 1),
+          (SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1)
+        ) AS responsible_name
       FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name
     `).bind(orgId).all());
     if (access.boys) add('boys', env.FONDATIONCK_DB.prepare(`
       SELECT b.*,s.name AS sector_name,
-        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name
+        COALESCE(
+          (SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id AND LOWER(r.function_title)=LOWER('Responsable des jeunes garçons') ORDER BY datetime(r.created_at),r.full_name LIMIT 1),
+          (SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1)
+        ) AS responsible_name
       FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name
     `).bind(orgId).all());
   }
@@ -695,11 +703,11 @@ async function loadData(env, session, url) {
   }
   if (scope === 'girls' && access.girls) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
-    add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*,s.name AS sector_name,(SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
+    add('girls', env.FONDATIONCK_DB.prepare(`SELECT g.*,s.name AS sector_name,COALESCE((SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id AND LOWER(r.function_title)=LOWER('Responsable des jeunes filles') ORDER BY datetime(r.created_at),r.full_name LIMIT 1),(SELECT r.full_name FROM responsibles r WHERE r.organization_id=g.organization_id AND r.sector_id=g.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1)) AS responsible_name FROM girls g LEFT JOIN sectors s ON s.id=g.sector_id WHERE g.organization_id=? ORDER BY g.full_name`).bind(orgId).all());
   }
   if (scope === 'boys' && access.boys) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
-    add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*,s.name AS sector_name,(SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS responsible_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
+    add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*,s.name AS sector_name,COALESCE((SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id AND LOWER(r.function_title)=LOWER('Responsable des jeunes garçons') ORDER BY datetime(r.created_at),r.full_name LIMIT 1),(SELECT r.full_name FROM responsibles r WHERE r.organization_id=b.organization_id AND r.sector_id=b.sector_id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1)) AS responsible_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
   }
   if (scope === 'report' && access.reports) {
     add('report_totals', env.FONDATIONCK_DB.prepare(`
@@ -713,6 +721,9 @@ async function loadData(env, session, url) {
     `).bind(orgId,orgId,orgId,orgId,orgId,orgId).first());
     add('report_by_sector', env.FONDATIONCK_DB.prepare(`
       SELECT s.id,s.name,s.locality,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id ORDER BY r.is_primary DESC,datetime(r.created_at),r.full_name LIMIT 1) AS sector_responsible_name,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id AND LOWER(r.function_title)=LOWER('Responsable des jeunes filles') ORDER BY datetime(r.created_at),r.full_name LIMIT 1) AS girls_responsible_name,
+        (SELECT r.full_name FROM responsibles r WHERE r.organization_id=s.organization_id AND r.sector_id=s.id AND LOWER(r.function_title)=LOWER('Responsable des jeunes garçons') ORDER BY datetime(r.created_at),r.full_name LIMIT 1) AS boys_responsible_name,
         (SELECT COUNT(*) FROM responsibles r WHERE r.organization_id=? AND r.sector_id=s.id) AS responsibles,
         (SELECT COUNT(*) FROM associations a WHERE a.organization_id=? AND a.sector_id=s.id) AS associations,
         (SELECT COUNT(*) FROM girls g WHERE g.organization_id=? AND g.sector_id=s.id) AS girls,
@@ -922,36 +933,54 @@ async function updateSector(env, orgId, b) {
   ensureChanged(r); return { target_type:'sector', target_id:id };
 }
 async function addSectorWithResponsible(env, orgId, b) {
-  const sectorId=crypto.randomUUID(), responsibleId=crypto.randomUUID();
+  const sectorId=crypto.randomUUID(), responsibleId=crypto.randomUUID(), girlsResponsibleId=crypto.randomUUID(), boysResponsibleId=crypto.randomUUID();
   const name=clean(b.name,140), locality=clean(b.locality,140), responsibleName=clean(b.responsible_name,140);
+  const girlsResponsibleName=clean(b.girls_responsible_name,140), boysResponsibleName=clean(b.boys_responsible_name,140);
   if(!name) throw bad('Nom du secteur requis.');
-  if(!responsibleName) throw bad('Nom du responsable requis.');
+  if(!responsibleName) throw bad('Nom du responsable du secteur requis.');
+  if(!girlsResponsibleName) throw bad('Nom du responsable des jeunes filles requis.');
+  if(!boysResponsibleName) throw bad('Nom du responsable des jeunes garçons requis.');
   await env.FONDATIONCK_DB.batch([
     env.FONDATIONCK_DB.prepare(`INSERT INTO sectors (id,organization_id,name,locality,village,description) VALUES (?,?,?,?, '', '')`).bind(sectorId,orgId,name,locality),
-    env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(responsibleId,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140))
+    env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(responsibleId,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,''),
+    env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,0)`).bind(girlsResponsibleId,orgId,sectorId,girlsResponsibleName,'Responsable des jeunes filles','','',locality,''),
+    env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,0)`).bind(boysResponsibleId,orgId,sectorId,boysResponsibleName,'Responsable des jeunes garçons','','',locality,'')
   ]);
   return { target_type:'sector', target_id:sectorId, responsible_id:responsibleId };
 }
 async function updateSectorWithResponsible(env, orgId, b) {
   const sectorId=clean(b.id,80), name=clean(b.name,140), locality=clean(b.locality,140), responsibleName=clean(b.responsible_name,140);
+  const girlsResponsibleName=clean(b.girls_responsible_name,140), boysResponsibleName=clean(b.boys_responsible_name,140);
   if(!sectorId||!name) throw bad('Données secteur incomplètes.');
-  if(!responsibleName) throw bad('Nom du responsable requis.');
+  if(!responsibleName) throw bad('Nom du responsable du secteur requis.');
+  if(!girlsResponsibleName) throw bad('Nom du responsable des jeunes filles requis.');
+  if(!boysResponsibleName) throw bad('Nom du responsable des jeunes garçons requis.');
   const sector=await env.FONDATIONCK_DB.prepare(`SELECT id FROM sectors WHERE id=? AND organization_id=?`).bind(sectorId,orgId).first();
   if(!sector) throw bad('Secteur introuvable.');
+
   let principal=await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? ORDER BY is_primary DESC,datetime(created_at),full_name LIMIT 1`).bind(orgId,sectorId).first();
+  let girlsLead=await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? AND LOWER(function_title)=LOWER('Responsable des jeunes filles') ORDER BY datetime(created_at),full_name LIMIT 1`).bind(orgId,sectorId).first();
+  let boysLead=await env.FONDATIONCK_DB.prepare(`SELECT id FROM responsibles WHERE organization_id=? AND sector_id=? AND LOWER(function_title)=LOWER('Responsable des jeunes garçons') ORDER BY datetime(created_at),full_name LIMIT 1`).bind(orgId,sectorId).first();
+
+  const statements=[env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,locality,sectorId,orgId)];
   if(principal){
-    await env.FONDATIONCK_DB.batch([
-      env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,locality,sectorId,orgId),
-      env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET full_name=?,function_title=?,phone=?,email=?,locality=?,village=?,is_primary=1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140),principal.id,orgId),
-      env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET is_primary=0 WHERE organization_id=? AND sector_id=? AND id<>?`).bind(orgId,sectorId,principal.id)
-    ]);
+    statements.push(env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET full_name=?,function_title=?,phone=?,email=?,locality=?,village='',is_primary=1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,principal.id,orgId));
+    statements.push(env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET is_primary=0 WHERE organization_id=? AND sector_id=? AND id<>?`).bind(orgId,sectorId,principal.id));
   } else {
-    const responsibleId=crypto.randomUUID();
-    await env.FONDATIONCK_DB.batch([
-      env.FONDATIONCK_DB.prepare(`UPDATE sectors SET name=?,locality=?,village='',description='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(name,locality,sectorId,orgId),
-      env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(responsibleId,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,clean(b.responsible_village,140))
-    ]);
+    principal={id:crypto.randomUUID()};
+    statements.push(env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,1)`).bind(principal.id,orgId,sectorId,responsibleName,clean(b.responsible_function,140)||'Responsable de secteur',clean(b.responsible_phone,40),clean(b.responsible_email,180),locality,''));
   }
+  if(girlsLead){
+    statements.push(env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET full_name=?,function_title='Responsable des jeunes filles',locality=?,village='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(girlsResponsibleName,locality,girlsLead.id,orgId));
+  } else {
+    statements.push(env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,0)`).bind(crypto.randomUUID(),orgId,sectorId,girlsResponsibleName,'Responsable des jeunes filles','','',locality,''));
+  }
+  if(boysLead){
+    statements.push(env.FONDATIONCK_DB.prepare(`UPDATE responsibles SET full_name=?,function_title='Responsable des jeunes garçons',locality=?,village='',updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`).bind(boysResponsibleName,locality,boysLead.id,orgId));
+  } else {
+    statements.push(env.FONDATIONCK_DB.prepare(`INSERT INTO responsibles (id,organization_id,sector_id,full_name,function_title,phone,email,locality,village,is_primary) VALUES (?,?,?,?,?,?,?,?,?,0)`).bind(crypto.randomUUID(),orgId,sectorId,boysResponsibleName,'Responsable des jeunes garçons','','',locality,''));
+  }
+  await env.FONDATIONCK_DB.batch(statements);
   return { target_type:'sector', target_id:sectorId };
 }
 async function addResponsible(env, orgId, b) {

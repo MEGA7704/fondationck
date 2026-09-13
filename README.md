@@ -1,6 +1,13 @@
-# LA FONDATION CK — V2.9 corrigée complète
+# LA FONDATION CK — V2.10 corrigée complète
 
 Projet **GitHub + Cloudflare Pages + D1 + KV**.
+
+## Précision V2.10 — responsables par secteur
+
+Chaque secteur possède désormais **trois responsables distincts** : responsable du secteur, responsable des jeunes filles et responsable des jeunes garçons. Le formulaire Secteur enregistre les trois noms. Le tableau Secteur les affiche directement et le bouton **Ouvrir** a été retiré de la colonne Actions.
+
+La synchronisation est assurée par D1 : les responsables spécialisés sont visibles dans la page **Responsables**, la page **Jeunes filles** affiche le responsable des jeunes filles du secteur, la page **Jeunes garçons** celui des jeunes garçons, et le **Rapport** reprend les trois responsables.
+
 
 ## Nouveautés V2.9
 

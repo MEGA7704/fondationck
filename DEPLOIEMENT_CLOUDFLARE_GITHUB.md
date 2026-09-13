@@ -1,4 +1,4 @@
-# Déploiement exact — LA FONDATION CK V2.9
+# Déploiement exact — LA FONDATION CK V2.10
 
 ## 1. GitHub
 
@@ -45,7 +45,7 @@ Ne publiez jamais le mot de passe dans GitHub.
 
 ## 5. D1
 
-Ne supprimez pas la base existante. La V2.9 met automatiquement à niveau les secteurs, le responsable principal, les informations de vote et les personnes alliées au premier appel API.
+Ne supprimez pas la base existante. La V2.10 met automatiquement à niveau les secteurs, le responsable principal, les informations de vote et les personnes alliées au premier appel API.
 
 Pour forcer les migrations :
 
@@ -54,7 +54,7 @@ npm install
 npx wrangler d1 migrations apply fondationck-d1 --remote
 ```
 
-Les fichiers de migration du projet vont de `0001_schema.sql` à `0006_sector_voting_allies.sql`. Pour une base déjà en production, la migration V2.9 est aussi appliquée automatiquement et de façon idempotente par le Worker.
+Les fichiers de migration du projet vont de `0001_schema.sql` à `0007_sector_responsables_jeunesse.sql`. Pour une base déjà en production, la migration V2.10 est aussi appliquée automatiquement et de façon idempotente par le Worker.
 
 ## 6. Après déploiement
 
