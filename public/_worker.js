@@ -16,6 +16,7 @@ export default {
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
         await ensureRuntimeSecurityMigration(env);
         await ensureHierarchyVillageMigration(env);
+        await ensureAccountRolesMigration(env);
         await ensureSuperAdmin(env, request);
         return await handleApi(request, env, ctx, url);
       }
@@ -101,6 +102,32 @@ async function ensureHierarchyVillageMigration(env) {
     await env.FONDATIONCK_KV.put(key, '1');
   } catch (e) {
     console.warn('Hierarchy village migration pending:', e?.message || e);
+  }
+}
+
+
+async function ensureAccountRolesMigration(env) {
+  // V2.4 : les comptes créés librement deviennent Visiteurs. Les anciens
+  // comptes auto-créés comme "admin" sont ramenés au statut Visiteur ; seuls
+  // les Sous-administrateurs et l'Administrateur principal restent admin.
+  const key = 'migration:account-roles:v2.4';
+  try { if (await env.FONDATIONCK_KV.get(key)) return; } catch {}
+  try {
+    const rows = await env.FONDATIONCK_DB.prepare(`SELECT id,role,access_json FROM users WHERE role<>'superadmin'`).all();
+    for (const row of (rows.results || [])) {
+      let access = {}; try { access = JSON.parse(row.access_json || '{}') || {}; } catch {}
+      const type = String(access.account_type || '');
+      if (row.role === 'admin' && !['subadmin','principal_admin'].includes(type)) {
+        await env.FONDATIONCK_DB.prepare(`UPDATE users SET role='member',access_json=?,session_version=session_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+          .bind(JSON.stringify(visitorAccess()), row.id).run();
+      } else if (row.role === 'member' && !['visitor','agent'].includes(type)) {
+        await env.FONDATIONCK_DB.prepare(`UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+          .bind(JSON.stringify(agentAccess(access)), row.id).run();
+      }
+    }
+    await env.FONDATIONCK_KV.put(key, '1');
+  } catch (e) {
+    console.warn('Account role migration pending:', e?.message || e);
   }
 }
 
@@ -283,16 +310,16 @@ async function register(request, env) {
   const id = crypto.randomUUID();
   const start = isoNow();
   const expiry = addDays(start, 10);
-  const access = JSON.stringify({ home: true, sectors: true, responsibles: true, girls: true, boys: true, settings: true, can_add: true, can_print: true, account_type: 'admin' });
+  const access = JSON.stringify(visitorAccess());
   await env.FONDATIONCK_DB.batch([
     env.FONDATIONCK_DB.prepare(`
       INSERT INTO users (id, organization_id, email, full_name, phone, role, status, plan, plan_started_at, plan_expires_at, access_json)
-      VALUES (?, ?, ?, ?, ?, 'admin', 'active', 'free', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, 'member', 'active', 'free', ?, ?, ?)
     `).bind(id, DEFAULT_ORG_ID, email, fullName, phone, start, expiry, access),
     env.FONDATIONCK_DB.prepare('INSERT INTO credentials (user_id, password_hash) VALUES (?, ?)').bind(id, await hashPassword(password))
   ]);
-  await audit(env, DEFAULT_ORG_ID, id, 'admin', 'REGISTER_ADMIN_ACCOUNT', 'user', id, ip, { email });
-  return json({ ok: true, message: 'Compte Administrateur créé. Votre plan Free est actif pendant 10 jours.' }, 201);
+  await audit(env, DEFAULT_ORG_ID, id, 'member', 'REGISTER_VISITOR_ACCOUNT', 'user', id, ip, { email });
+  return json({ ok: true, message: 'Compte créé avec le statut Visiteur. Un Administrateur principal pourra ensuite vous attribuer le statut Agent ou Sous-administrateur.' }, 201);
 }
 
 async function login(request, env) {
@@ -381,7 +408,7 @@ async function requestPasswordReset(request, env) {
       `).bind(crypto.randomUUID(), user.organization_id, user.id, email, user.role).run();
     }
   }
-  return json({ ok: true, message: 'Demande enregistrée. Un Administrateur ou Sous-administrateur est réinitialisé par le Super Admin ; un Agent est réinitialisé par son Administrateur.' });
+  return json({ ok: true, message: 'Demande enregistrée. L’Administrateur principal et les Sous-administrateurs sont réinitialisés par le Super Admin ; les Visiteurs et Agents sont réinitialisés par un administrateur.' });
 }
 
 async function logout(request, env, session) {
@@ -420,7 +447,7 @@ async function loadData(env, session, url) {
   const payload = {
     ok: true, user: sanitizeUser(user), csrf_token: session.csrf, access,
     subscription_active: subscriptionActive, plan: planInfo(user),
-    content: {}, sectors: [], responsibles: [], girls: [], boys: [], news: [], users: [], reset_requests: [], contact_messages: []
+    content: {}, sectors: [], responsibles: [], girls: [], boys: [], news: [], users: [], reset_requests: [], contact_messages: [], report: { totals: {}, by_sector: [] }
   };
   if (!subscriptionActive && user.role !== 'superadmin') return json(payload);
   if (scope === 'session') return json(payload);
@@ -441,6 +468,23 @@ async function loadData(env, session, url) {
     add('sectors', env.FONDATIONCK_DB.prepare('SELECT * FROM sectors WHERE organization_id = ? ORDER BY name, locality, village').bind(orgId).all());
     add('boys', env.FONDATIONCK_DB.prepare(`SELECT b.*, s.name AS sector_name FROM boys b LEFT JOIN sectors s ON s.id=b.sector_id WHERE b.organization_id=? ORDER BY b.full_name`).bind(orgId).all());
   }
+  if (scope === 'report' && access.reports) {
+    add('report_totals', env.FONDATIONCK_DB.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM sectors WHERE organization_id=?) AS sectors,
+        (SELECT COUNT(*) FROM responsibles WHERE organization_id=?) AS responsibles,
+        (SELECT COUNT(*) FROM girls WHERE organization_id=?) AS girls,
+        (SELECT COUNT(*) FROM boys WHERE organization_id=?) AS boys
+    `).bind(orgId,orgId,orgId,orgId).first());
+    add('report_by_sector', env.FONDATIONCK_DB.prepare(`
+      SELECT s.id,s.name,s.locality,s.village,
+        (SELECT COUNT(*) FROM responsibles r WHERE r.organization_id=? AND r.sector_id=s.id) AS responsibles,
+        (SELECT COUNT(*) FROM girls g WHERE g.organization_id=? AND g.sector_id=s.id) AS girls,
+        (SELECT COUNT(*) FROM boys b WHERE b.organization_id=? AND b.sector_id=s.id) AS boys
+      FROM sectors s WHERE s.organization_id=?
+      ORDER BY s.name,s.locality,s.village
+    `).bind(orgId,orgId,orgId,orgId).all());
+  }
   if (scope === 'settings' && ['admin','superadmin'].includes(user.role)) {
     add('content', env.FONDATIONCK_DB.prepare('SELECT * FROM site_content WHERE organization_id = ?').bind(orgId).first());
     add('news', env.FONDATIONCK_DB.prepare('SELECT id,title,summary,content,image_key,published,published_at,created_at FROM news WHERE organization_id=? ORDER BY datetime(published_at) DESC').bind(orgId).all());
@@ -452,6 +496,8 @@ async function loadData(env, session, url) {
   for (let i=0;i<results.length;i++) {
     const name=assign[i], value=results[i];
     if (name==='content') payload.content=value||{};
+    else if (name==='report_totals') payload.report.totals=value||{};
+    else if (name==='report_by_sector') payload.report.by_sector=value.results||[];
     else if (name==='users') payload.users=(value.results||[]).map(sanitizeUser);
     else if (name==='news') payload.news=(value.results||[]).map(n=>({...n,image_url:n.image_key?`/media/${encodeURIComponent(n.image_key)}`:''}));
     else payload[name]=value.results||[];
@@ -471,6 +517,8 @@ async function saveData(request, env, session) {
   const action = clean(body.action, 80);
   const user = session.user;
   const orgId = user.role === 'superadmin' ? DEFAULT_ORG_ID : user.organization_id;
+  const currentType = accountType(user);
+  if (currentType === 'visitor' && action !== 'change-own-password') return json({ ok: false, error: 'Le statut Visiteur autorise uniquement la consultation. Aucune modification n’est permise.' }, 403);
   if (!isSubscriptionActive(user) && user.role !== 'superadmin' && !['change-own-password'].includes(action)) {
     return json({ ok: false, error: 'Votre abonnement a expiré. Activez un plan pour continuer.' }, 402);
   }
@@ -485,8 +533,9 @@ async function saveData(request, env, session) {
   const addActions = new Set(['add-sector','add-responsible','add-girl','add-boy']);
   const guardedAgentActions = new Set(['update-sector','delete-sector','update-responsible','delete-responsible','update-girl','delete-girl','update-boy','delete-boy']);
   if (strictAdmin.has(action) && !['admin','superadmin'].includes(user.role)) return json({ ok: false, error: 'Action réservée à l’Administrateur.' }, 403);
+  if (action === 'set-user-type' && !isPrincipalAdmin(user)) return json({ ok: false, error: 'Seul l’Administrateur principal peut attribuer le statut Agent ou Sous-administrateur.' }, 403);
   let approvalAdminId = '';
-  if (user.role === 'member' && action !== 'change-own-password') {
+  if (user.role === 'member' && currentType === 'agent' && action !== 'change-own-password') {
     const memberAccess = parseAccess(user.access_json, user.role);
     const pageKey = entityPage[action];
     if (!pageKey || !memberAccess[pageKey]) return json({ ok: false, error: 'Action non autorisée pour cet Agent.' }, 403);
@@ -517,6 +566,7 @@ async function saveData(request, env, session) {
     case 'delete-news': result = await deleteNews(env, orgId, body.id); break;
     case 'update-site-content': result = await updateSiteContent(env, orgId, body); break;
     case 'create-user': result = await createMember(env, orgId, body, user); break;
+    case 'set-user-type': result = await setUserTypeByPrincipal(env, orgId, body, user); break;
     case 'update-user-access': result = await updateMemberAccess(env, orgId, body); break;
     case 'reset-member-password': result = await resetMemberPassword(env, orgId, body); break;
     case 'resolve-member-reset': result = await resolveMemberReset(env, orgId, body, user.id); break;
@@ -585,6 +635,7 @@ async function superAdminApi(request, env, session, url) {
   else if (action === 'reset-password') result = await superResetPassword(env, body);
   else if (action === 'resolve-reset') result = await superResolveReset(env, body, session.user.id);
   else if (action === 'update-access') result = await superUpdateAccess(env, body);
+  else if (action === 'set-account-type') result = await superSetAccountType(env, body);
   else return json({ ok: false, error: 'Action Super Admin inconnue.' }, 400);
   await audit(env, result?.organization_id || null, session.user.id, 'superadmin', `SUPER_${action.toUpperCase()}`, result?.target_type || 'user', result?.target_id || '', getIp(request), result?.audit || {});
   return json({ ok: true, ...(result || {}) });
@@ -664,34 +715,48 @@ async function updateSiteContent(env, orgId, b) {
 }
 async function createMember(env, orgId, b, actor) {
   const email=normalizeEmail(b.email), full=clean(b.full_name,140), password=String(b.password||'');
-  const userType=b.user_type==='subadmin'?'subadmin':'agent';
   if(!validEmail(email)||!full||password.length<8) throw bad('Nom, e-mail valide et mot de passe de 8 caractères minimum requis.');
   if(await env.FONDATIONCK_DB.prepare('SELECT id FROM users WHERE email=? COLLATE NOCASE').bind(email).first()) throw conflict('E-mail déjà utilisé.');
   const id=crypto.randomUUID(), start=isoNow(), expiry=addDays(start,10);
-  const role=userType==='subadmin'?'admin':'member';
-  const accessObj=userType==='subadmin'
-    ? {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:'subadmin'}
-    : {...normalizeAccess(b.access),account_type:'agent'};
-  const access=JSON.stringify(accessObj);
   await env.FONDATIONCK_DB.batch([
-    env.FONDATIONCK_DB.prepare(`INSERT INTO users (id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json) VALUES (?,?,?,?,?,?, 'active','free',?,?,1,?)`).bind(id,orgId,email,full,clean(b.phone,40),role,start,expiry,access),
+    env.FONDATIONCK_DB.prepare(`INSERT INTO users (id,organization_id,email,full_name,phone,role,status,plan,plan_started_at,plan_expires_at,must_change_password,access_json) VALUES (?,?,?,?,?,'member','active','free',?,?,1,?)`).bind(id,orgId,email,full,clean(b.phone,40),start,expiry,JSON.stringify(visitorAccess())),
     env.FONDATIONCK_DB.prepare('INSERT INTO credentials (user_id,password_hash) VALUES (?,?)').bind(id,await hashPassword(password))
   ]);
-  return { target_type:'user', target_id:id, audit:{user_type:userType,created_by:actor?.id||''}, message:userType==='subadmin'?'Sous-administrateur créé avec accès complet.':'Agent créé avec les autorisations sélectionnées.' };
+  return { target_type:'user', target_id:id, audit:{user_type:'visitor',created_by:actor?.id||''}, message:'Utilisateur créé avec le statut Visiteur.' };
+}
+
+async function setUserTypeByPrincipal(env, orgId, b, actor) {
+  if (!isPrincipalAdmin(actor)) throw bad('Seul l’Administrateur principal peut modifier le statut d’un utilisateur.');
+  const id=clean(b.id,80), type=['visitor','agent','subadmin'].includes(b.user_type)?b.user_type:'';
+  if(!id||!type) throw bad('Statut utilisateur invalide.');
+  if(id===actor.id) throw bad('L’Administrateur principal ne peut pas modifier son propre titre.');
+  const target=await env.FONDATIONCK_DB.prepare(`SELECT id,role,access_json FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
+  if(!target||target.role==='superadmin') throw bad('Compte non modifiable.');
+  const targetType=accountType(target);
+  if(targetType==='principal_admin') throw bad('Le titre Administrateur principal est géré uniquement par le Super Admin.');
+  let role='member', access;
+  if(type==='visitor') access=visitorAccess();
+  else if(type==='agent') access=agentAccess(b.access||{});
+  else { role='admin'; access=fullAdminAccess('subadmin'); }
+  await env.FONDATIONCK_DB.prepare(`UPDATE users SET role=?,access_json=?,session_version=session_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?`)
+    .bind(role,JSON.stringify(access),id,orgId).run();
+  return {target_type:'user',target_id:id,audit:{from:targetType,to:type},message:`Statut ${type==='subadmin'?'Sous-administrateur':type==='agent'?'Agent':'Visiteur'} appliqué.`};
 }
 
 async function updateMemberAccess(env, orgId, b) {
   const id=clean(b.id,80); const target=await env.FONDATIONCK_DB.prepare(`SELECT role FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
-  if(!target||target.role!=='member') throw bad('Seuls les accès des utilisateurs membres peuvent être modifiés ici.');
-  const r=await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?').bind(JSON.stringify({...normalizeAccess(b.access),account_type:'agent'}),id,orgId).run(); ensureChanged(r);
+  if(!target||target.role!=='member') throw bad('Seuls les accès des Agents peuvent être modifiés ici.');
+  const current=await env.FONDATIONCK_DB.prepare(`SELECT access_json FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
+  if(accountType(current)!=='agent') throw bad('Les autorisations détaillées concernent uniquement les Agents.');
+  const r=await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=? AND organization_id=?').bind(JSON.stringify(agentAccess(b.access)),id,orgId).run(); ensureChanged(r);
   return { target_type:'user', target_id:id };
 }
 async function resetMemberPassword(env, orgId, b) {
   const id=clean(b.id,80), password=String(b.password||''); if(password.length<8) throw bad('Mot de passe temporaire de 8 caractères minimum requis.');
   const target=await env.FONDATIONCK_DB.prepare(`SELECT id,role FROM users WHERE id=? AND organization_id=?`).bind(id,orgId).first();
-  if(!target||target.role!=='member') throw bad('Seul le mot de passe d’un Agent peut être réinitialisé par un Administrateur.');
+  if(!target||target.role!=='member') throw bad('Seul le mot de passe d’un Visiteur ou d’un Agent peut être réinitialisé par un Administrateur.');
   await setPassword(env,id,password,true);
-  return { target_type:'user', target_id:id, message:'Mot de passe de l’Agent réinitialisé. Toutes les anciennes sessions ont été invalidées.' };
+  return { target_type:'user', target_id:id, message:'Mot de passe de l’utilisateur réinitialisé. Toutes les anciennes sessions ont été invalidées.' };
 }
 
 async function resolveMemberReset(env, orgId, b, actorId) {
@@ -742,9 +807,28 @@ async function superResolveReset(env,b,actorId){
   await env.FONDATIONCK_DB.prepare(`UPDATE password_reset_requests SET status='resolved',resolved_at=CURRENT_TIMESTAMP,resolved_by=? WHERE id=?`).bind(actorId,requestId).run();
   return { organization_id:req.organization_id,target_type:'password_reset_request',target_id:requestId };
 }
+async function superSetAccountType(env,b){
+  const id=clean(b.id,80), type=['visitor','agent','subadmin','principal_admin'].includes(b.user_type)?b.user_type:'';
+  if(!id||!type) throw bad('Type de compte invalide.');
+  const target=await env.FONDATIONCK_DB.prepare('SELECT id,organization_id,role,access_json FROM users WHERE id=?').bind(id).first();
+  if(!target||target.role==='superadmin') throw bad('Compte non modifiable.');
+  if(type==='principal_admin'){
+    const admins=await env.FONDATIONCK_DB.prepare(`SELECT id,access_json FROM users WHERE role='admin' AND id<>?`).bind(id).all();
+    const existing=(admins.results||[]).find(u=>accountType(u)==='principal_admin');
+    if(existing) throw conflict('Un Administrateur principal est déjà actif. Il ne peut y en avoir qu’un seul.');
+  }
+  let role='member', access;
+  if(type==='visitor') access=visitorAccess();
+  else if(type==='agent') access=agentAccess(b.access||{});
+  else if(type==='subadmin'){role='admin';access=fullAdminAccess('subadmin');}
+  else {role='admin';access=fullAdminAccess('principal_admin');}
+  await env.FONDATIONCK_DB.prepare(`UPDATE users SET role=?,access_json=?,session_version=session_version+1,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(role,JSON.stringify(access),id).run();
+  return {organization_id:target.organization_id,target_type:'user',target_id:id,audit:{account_type:type},message:`Titre ${type==='principal_admin'?'Administrateur principal':type==='subadmin'?'Sous-administrateur':type==='agent'?'Agent':'Visiteur'} appliqué.`};
+}
+
 async function superUpdateAccess(env,b){
-  const id=clean(b.id,80),target=await env.FONDATIONCK_DB.prepare('SELECT organization_id,role FROM users WHERE id=?').bind(id).first(); if(!target||target.role==='superadmin') throw bad('Compte non modifiable.');
-  await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(JSON.stringify(normalizeAccess(b.access)),id).run();
+  const id=clean(b.id,80),target=await env.FONDATIONCK_DB.prepare('SELECT organization_id,role,access_json FROM users WHERE id=?').bind(id).first(); if(!target||target.role==='superadmin'||accountType(target)!=='agent') throw bad('Les autorisations détaillées concernent uniquement les Agents.');
+  await env.FONDATIONCK_DB.prepare('UPDATE users SET access_json=?,updated_at=CURRENT_TIMESTAMP WHERE id=?').bind(JSON.stringify(agentAccess(b.access)),id).run();
   return { organization_id:target.organization_id,target_type:'user',target_id:id };
 }
 
@@ -797,11 +881,26 @@ function isSubscriptionActive(u){ if(u.role==='superadmin') return true; return 
 function daysRemaining(exp){ return Math.max(0,Math.ceil((new Date(exp).getTime()-Date.now())/86400000)); }
 function parseAccess(raw,role){
   let a={}; try{a=JSON.parse(raw||'{}')||{};}catch{}
-  if(role==='superadmin') return {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:'superadmin'};
-  if(role==='admin') return {home:true,sectors:true,responsibles:true,girls:true,boys:true,settings:true,can_add:true,can_print:true,account_type:a.account_type==='subadmin'?'subadmin':'admin'};
-  return normalizeAccess(a);
+  if(role==='superadmin') return {...fullAdminAccess('superadmin')};
+  if(role==='admin') {
+    const type=a.account_type==='principal_admin'?'principal_admin':'subadmin';
+    return fullAdminAccess(type);
+  }
+  if(a.account_type==='visitor') return visitorAccess();
+  return agentAccess(a);
 }
-function normalizeAccess(a){ return { home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,girls:a?.girls!==false,boys:a?.boys!==false,settings:true,can_add:a?.can_add!==false,can_print:a?.can_print!==false,account_type:'agent' }; }
+function accountType(u){
+  if(!u) return '';
+  if(u.role==='superadmin') return 'superadmin';
+  let a={}; try{a=typeof u.access_json==='string'?JSON.parse(u.access_json||'{}'):(u.access||u||{});}catch{}
+  if(u.role==='admin') return a.account_type==='principal_admin'?'principal_admin':'subadmin';
+  return a.account_type==='visitor'?'visitor':'agent';
+}
+function isPrincipalAdmin(u){ return u?.role==='admin' && accountType(u)==='principal_admin'; }
+function fullAdminAccess(type='subadmin'){ return {home:true,sectors:true,responsibles:true,girls:true,boys:true,reports:true,settings:true,can_add:true,can_print:true,account_type:type}; }
+function visitorAccess(){ return {home:true,sectors:true,responsibles:true,girls:true,boys:true,reports:true,settings:true,can_add:false,can_print:false,account_type:'visitor'}; }
+function agentAccess(a={}){ return {home:true,sectors:a?.sectors!==false,responsibles:a?.responsibles!==false,girls:a?.girls!==false,boys:a?.boys!==false,reports:a?.reports!==false,settings:true,can_add:a?.can_add!==false,can_print:a?.can_print!==false,account_type:'agent'}; }
+function normalizeAccess(a){ return agentAccess(a); }
 
 async function hashPassword(password){
   const salt=crypto.getRandomValues(new Uint8Array(16));

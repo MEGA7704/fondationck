@@ -135,3 +135,12 @@ Lorsqu'il s'agit du Super Admin et que les secrets Cloudflare correspondent, le 
 - La Localité et le Village choisis sont enregistrés côté serveur avec le responsable.
 - Les bases D1 existantes reçoivent automatiquement les nouvelles colonnes sans suppression des données.
 - Les textes demandés concernant la protection des abonnements et la durée du plan Free sur l'écran de création de compte ont été retirés de l'interface.
+
+
+## V2.4 — Rapport et hiérarchie des comptes
+
+La version 2.4 ajoute la page **Rapport** dans le menu connecté. Elle regroupe les résumés des listes Secteurs, Responsables, Jeunes filles et Jeunes garçons, avec une synthèse par secteur/localité/village.
+
+Tous les nouveaux comptes commencent désormais comme **Visiteur**. Le Visiteur est en consultation seule et, dans Paramètre, ne voit que **Mon compte**. L’**Administrateur principal** peut transformer un Visiteur en **Agent** ou **Sous-administrateur**. Le titre **Administrateur principal** est attribué exclusivement par le **Super Admin** et le serveur refuse automatiquement la présence de deux Administrateurs principaux.
+
+Une migration d’exécution (`migration:account-roles:v2.4`) convertit automatiquement les anciens comptes créés librement comme Administrateurs en Visiteurs. Aucun effacement des listes ou autres données D1 n’est effectué.

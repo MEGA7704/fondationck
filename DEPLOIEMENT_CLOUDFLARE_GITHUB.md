@@ -129,3 +129,8 @@ Aucune suppression manuelle de D1 n'est nécessaire.
 4. Aucune migration D1 manuelle n'est requise pour V2.3 : le Worker vérifie le schéma et ajoute les colonnes manquantes de façon non destructive.
 5. Après le déploiement, faites `Ctrl + F5` dans le navigateur pour charger le nouveau JavaScript.
 6. Dans « Ajouter secteur », renseignez Secteur, Localité et Village. Dans « Ajouter responsable », le choix se fait ensuite dans l'ordre Secteur → Localité → Village.
+
+
+## Mise à niveau V2.4
+
+Aucune nouvelle table D1 n’est requise. Après déploiement, le Worker applique automatiquement la migration de rôles V2.4. Gardez les bindings `FONDATIONCK_DB` et `FONDATIONCK_KV`, ainsi que les secrets Super Admin existants.

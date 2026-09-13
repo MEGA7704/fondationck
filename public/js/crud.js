@@ -8,7 +8,8 @@
   };
   const cfg=configs[key]; let data=null, filtered=[];
   const isAdmin=()=>data&&['admin','superadmin'].includes(data.user.role);
-  const isAgent=()=>data?.user?.role==='member';
+  const isAgent=()=>data?.user?.role==='member'&&data.user.access?.account_type==='agent';
+  const isVisitor=()=>data?.user?.role==='member'&&data.user.access?.account_type==='visitor';
   const canAdd=()=>isAdmin() || (isAgent()&&data.access?.can_add!==false);
   const canPrint=()=>isAdmin() || (isAgent()&&data.access?.can_print!==false);
   const canEditWithApproval=()=>isAdmin() || isAgent();

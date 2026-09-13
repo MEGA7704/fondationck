@@ -1,0 +1,13 @@
+LA FONDATION CK — CORRECTIONS V2.4
+
+- Ajout du menu horizontal « Rapport » et de la page rapport.html.
+- Rapport optimisé côté serveur : totaux Secteurs / Responsables / Jeunes filles / Jeunes garçons et résumé par secteur, localité et village.
+- Tous les nouveaux comptes créés depuis le site ou par un administrateur commencent avec le statut « Visiteur ».
+- Le Visiteur dispose d’un accès de consultation uniquement : aucune création, modification, suppression ou impression.
+- Dans Paramètre, le Visiteur ne voit que « Mon compte ».
+- L’Administrateur principal peut transformer un Visiteur en Agent ou Sous-administrateur.
+- Un Agent conserve des autorisations configurables de consultation, ajout et impression ; modification/suppression toujours protégées par mot de passe administrateur.
+- Le titre « Administrateur principal » est attribué uniquement par le Super Admin.
+- Limitation serveur stricte : un seul Administrateur principal à la fois.
+- Le Super Admin dispose d’un bouton « Rôle » pour attribuer Visiteur, Agent, Sous-administrateur ou Administrateur principal.
+- Migration automatique V2.4 : les anciens comptes auto-créés comme Administrateur deviennent Visiteurs, sans suppression des données.
