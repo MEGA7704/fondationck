@@ -156,34 +156,67 @@
     const localitySel=wrap.querySelector('#responsibleLocality');
     const functionSel=wrap.querySelector('#responsibleFunction');
     const idInput=wrap.querySelector('#responsibleSectorId');
-    if(!sectorSel||!localitySel||!functionSel||!idInput)return;
+    const localityField=localitySel?.closest('.field');
+    if(!sectorSel||!localitySel||!functionSel||!idInput||!localityField)return;
     const linked=sectorById(row.sector_id);
     const initialSector=clean(linked?.name||row.sector_name||sectorSel.value);
     const initialLocality=clean(linked?.locality||row.locality||localitySel.value);
     const initialFunction=clean(row.function_title||'');
 
-    function syncId(){
+    function ensureLocalityForSectorRole(){
+      if(clean(functionSel.value)!=='Responsable de secteur')return;
+      if(!sectorSel.value)return;
+      const available=uniq(sectorRows().filter(s=>clean(s.name)===clean(sectorSel.value)).map(s=>s.locality));
+      if(!localitySel.value || !available.includes(localitySel.value)) localitySel.value=available[0]||'';
+    }
+    function updateLocalityVisibility(){
+      const sectorRole=clean(functionSel.value)==='Responsable de secteur';
+      if(sectorRole) ensureLocalityForSectorRole();
+      localityField.hidden=sectorRole;
+      localitySel.required=true; // la règle d’unicité par localité reste appliquée côté client et serveur
+      localitySel.setAttribute('aria-hidden',sectorRole?'true':'false');
+    }
+    function refreshFunctions(preferredFunction=''){
+      const wanted=clean(preferredFunction||functionSel.value||initialFunction);
+      functionSel.innerHTML=functionOptions(localitySel.value,wanted,row.id||'');
+      if(wanted && [...functionSel.options].some(o=>o.value===wanted&&!o.disabled)) functionSel.value=wanted;
+      updateLocalityVisibility();
+    }
+    function syncId(preferredFunction=''){
       const match=matchingSector(sectorSel.value,localitySel.value);
       idInput.value=match?.id||'';
-      functionSel.innerHTML=functionOptions(localitySel.value,functionSel.value||initialFunction,row.id||'');
+      refreshFunctions(preferredFunction);
     }
-    function fillLocalities(preferredLocality=''){
+    function fillLocalities(preferredLocality='',preferredFunction=''){
       if(!sectorSel.value){
         localitySel.innerHTML='<option value="">— Choisir d’abord un secteur —</option>';
         localitySel.disabled=true; idInput.value='';
-        functionSel.innerHTML=functionOptions('',initialFunction,row.id||'');
+        refreshFunctions(preferredFunction||initialFunction);
         return;
       }
       localitySel.disabled=false;
       localitySel.innerHTML=localityOptions(sectorSel.value,preferredLocality);
       if(preferredLocality && ![...localitySel.options].some(o=>o.value===preferredLocality)) localitySel.value='';
-      syncId();
+      if(clean(preferredFunction||functionSel.value||initialFunction)==='Responsable de secteur' && !localitySel.value){
+        const first=[...localitySel.options].find(o=>o.value);
+        if(first)localitySel.value=first.value;
+      }
+      syncId(preferredFunction);
     }
-    sectorSel.addEventListener('change',()=>fillLocalities());
-    localitySel.addEventListener('change',()=>syncId());
+    sectorSel.addEventListener('change',()=>fillLocalities('',functionSel.value));
+    localitySel.addEventListener('change',()=>syncId(functionSel.value));
+    functionSel.addEventListener('change',()=>{
+      const selected=clean(functionSel.value);
+      if(selected==='Responsable de secteur'){
+        ensureLocalityForSectorRole();
+        const match=matchingSector(sectorSel.value,localitySel.value);
+        idInput.value=match?.id||'';
+      }
+      updateLocalityVisibility();
+    });
     sectorSel.value=initialSector;
-    fillLocalities(initialLocality);
-    functionSel.innerHTML=functionOptions(localitySel.value,initialFunction,row.id||'');
+    fillLocalities(initialLocality,initialFunction);
+    refreshFunctions(initialFunction);
   }
   function openForm(row={}){
     const editing=!!row.id;let fields='';

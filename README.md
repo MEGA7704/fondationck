@@ -1,3 +1,7 @@
+# LA FONDATION CK — V2.21
+
+Correction ciblée du popup **Ajouter / Modifier un responsable** : le champ **Localité** est masqué pour la fonction **Responsable de secteur**, et affiché pour **Responsable des jeunes filles** et **Responsable des jeunes garçons**. La règle d’unicité déjà imposée reste inchangée. Voir `CORRECTIONS_V2_21.txt`.
+
 # LA FONDATION CK — V2.13
 
 Cette version ajoute le décompte des alliés des jeunes filles dans la page Rapport et la mention ©2026 Méga Services SARL U - Tous droits réservés dans le footer.
