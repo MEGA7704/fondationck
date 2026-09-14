@@ -155,3 +155,6 @@ Le formulaire Jeunes filles sépare Secteur et Localité. La liste Localité dé
 - Utilisateurs : ajout de la colonne Téléphone ; le mot de passe reste volontairement jamais affiché.
 - Nouvelles du jour : ajout des aperçus Résumé et Contenu, avec statut de publication.
 Aucune migration D1 n’est requise.
+
+## V2.22 — Ordre Fonction / Localité des responsables
+Dans le formulaire Responsable, le champ Fonction est affiché avant Localité. Localité est masquée pour « Responsable de secteur » et affichée pour les deux fonctions jeunesse, sans modifier les contrôles d’unicité déjà en place.
