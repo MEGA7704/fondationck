@@ -172,8 +172,18 @@
     function updateLocalityVisibility(){
       const sectorRole=clean(functionSel.value)==='Responsable de secteur';
       if(sectorRole) ensureLocalityForSectorRole();
+
+      // Le champ Localité doit être totalement invisible pour « Responsable de secteur ».
+      // On applique à la fois hidden + style.display afin qu'aucune règle .field{display:flex}
+      // ne puisse réafficher le bloc dans le popup.
       localityField.hidden=sectorRole;
-      localitySel.required=true; // la règle d’unicité par localité reste appliquée côté client et serveur
+      localityField.style.display=sectorRole?'none':'';
+      localityField.setAttribute('aria-hidden',sectorRole?'true':'false');
+
+      // La localité technique reste calculée en arrière-plan pour conserver les règles
+      // serveur et d'unicité déjà imposées, mais elle n'est pas présentée à l'utilisateur.
+      localitySel.required=!sectorRole;
+      localitySel.tabIndex=sectorRole?-1:0;
       localitySel.setAttribute('aria-hidden',sectorRole?'true':'false');
     }
     function refreshFunctions(preferredFunction=''){
